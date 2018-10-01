@@ -7502,3 +7502,88 @@ class X {
 
 ##### 实施
 标记出不完整的配对。
+
+## 智能指针
+
+### R.20: 使用`unique_ptr`或`shared_ptr`来表示所有权
+
+##### 理由
+
+它们可以防止资源泄露。
+
+##### 示例
+
+考虑以下代码：
+
+```cpp
+void f()
+{
+    X x;
+    X* p1 { new X };              // 参阅：???
+    unique_ptr<T> p2 { new X };   // 唯一的所有权；参阅???
+    shared_ptr<T> p3 { new X };   // 共享的所有权；参阅???
+    auto p4 = make_unique<X>();   // 唯一的所有权，比显式使用“new”更好
+    auto p5 = make_shared<X>();   // 共享的所有权，比显式使用“new”更好
+}
+```
+
+这里（只）会泄露用来初始化`p1`的对象。
+
+##### 实施
+
+（简单）如果`new`的返回值或者返回值为指针类型的函数调用被赋值给原始指针，发出警告。
+
+### R.21: 优先使用`unique_ptr`而不是`shared_ptr`，除非你需要共享所有权
+
+##### 理由
+
+`unique_ptr`在概念上更简单，更可预见（你知道什么时候发生析构），以及更快（你不用隐式地维护使用计数）。
+
+##### 示例，不好的
+
+这里不必要地添加和维护了一个引用计数。
+
+```cpp
+void f()
+{
+    shared_ptr<Base> base = make_shared<Derived>();
+    // 局部地使用base，没有拷贝它——引用计数永远不会超过1
+} // 销毁base
+```
+
+##### 示例
+
+这样会更加高效：
+
+```cpp
+void f()
+{
+    unique_ptr<Base> base = make_unique<Derived>();
+    // 局部地使用base
+} // 销毁base
+```
+
+##### 实施
+
+（简单）如果一个函数将`shared_ptr`与一个在函数内分配的对象一起使用，但永远不会返回这个`shared_ptr`，或者把它传递给需要`shared_ptr&`的函数，那么发出警告。建议使用`unique_ptr`来代替。
+
+### R.22: 使用`make_shared()`来生成`shared_ptr`
+
+##### 理由
+
+如果你先创建一个对象然后把它传给`shared_ptr`的构造函数，比起使用`make_shared()`，你（很可能）会执行了一次额外的分配（以及稍后的释放），因为引用计数必须在对象之外另外分配。
+
+##### 示例
+
+考虑以下代码：
+
+```cpp
+shared_ptr<X> p1 { new X{2} }; // 不好
+auto p = make_shared<X>(2);    // 好
+```
+
+`make_shared()`版本只需提及`X`一次，所以比起用显式`new`的版本它通常更短（也更快）。
+
+##### 实施
+
+（简单）如果`shared_ptr`由`new`的结果而不是`make_shared`来构造，进行警告。

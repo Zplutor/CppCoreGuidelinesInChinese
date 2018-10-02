@@ -7125,8 +7125,8 @@ enum class Base_flag { dec = 1, oct = dec << 1, hex = dec << 2 }; // 位的集�
 	* R.32: 使用`unique_ptr<widget>`作为参数，来表示函数要获取`widget`的所有权
 	* R.33: 使用`unique_ptr<widget>&`作为参数，来表示函数要重设`widget`
 	* R.34: 使用`shared_ptr<widget>`作为参数，来表示函数是部分所有者
-	* R.35: 使用`shared_ptr<widget>`作为参数，来表示函数可能会重设共享的指针
-	* R.36: 使用`const shared_ptr<widget>&`作为参数，来表示函数会维持对象的引用计数???
+	* R.35: 使用`shared_ptr<widget>&`作为参数，来表示函数可能会重设共享的指针
+	* R.36: 使用`const shared_ptr<widget>&`作为参数，来表示函数可能会持有对象的引用计数???
 	* R.37: 不要传递从别名智能指针获取的指针或引用
 
 ### R.1: 使用资源句柄和RAII（资源获取即初始化）自动地管理资源
@@ -7586,4 +7586,334 @@ auto p = make_shared<X>(2);    // 好
 
 ##### 实施
 
-（简单）如果`shared_ptr`由`new`的结果而不是`make_shared`来构造，进行警告。
+（简单）如果`shared_ptr`由`new`的结果而不是`make_shared`来构造，发出警告。
+
+### R.23: 使用`make_unique()`来生成`unique_ptr`
+
+##### 理由
+
+为了方便，以及与`shared_ptr`保持一致。
+
+##### 注意
+
+`make_unique()`是在C++14中的，但普遍都可以使用（同时也容易自己写出来）。
+
+##### 实施
+
+（简单）如果`unique_ptr`由`new`的结果而不是`make_unique`来构造，发出警告。
+
+### R.24: 使用`std::weak_ptr`来破除`shared_ptr`的循环
+
+##### 理由
+
+`shared_ptr`依赖使用计数，而在环形结构中使用计数永远不会降到0，因此我们需要一个机制来打破环形结构。
+
+##### 示例
+
+```cpp
+#include <memory>
+
+class bar;
+
+class foo
+{
+public:
+    explicit foo(const std::shared_ptr<bar>& forward_reference)
+    : forward_reference_(forward_reference)
+    { }
+private:
+    std::shared_ptr<bar> forward_reference_;
+};
+
+class bar
+{
+public:
+    explicit bar(const std::weak_ptr<foo>& back_reference)
+    : back_reference_(back_reference)
+    { }
+    void do_something()
+    {
+    if (auto shared_back_reference = back_reference_.lock()) {
+        // 使用 *shared_back_reference
+    }
+    }
+private:
+    std::weak_ptr<foo> back_reference_;
+};
+```
+
+##### 注意
+
+???（HS：很多人说“要打破循环”，但我认为“临时的共享所有权”更关键）
+???（BS：打破循环是你必须要做的事情；临时地共享所有权是你如何去做这个事情）
+你可以通过简单地使用另一个`shared_ptr`来“临时地共享所有权”。
+
+##### 实施
+
+??? 也许是不可能的。如果我们可以静态地检测出循环，我们就不需要`weak_ptr`。
+
+### R.30: 只有在显式表达生命周期语义的时候才使用智能指针作为参数
+
+##### 理由
+
+如果函数只需要`widget`本身，那么它接受一个`widget`的智能指针是错误的。它应该能够接受任意`widget`对象，不仅仅是那些由特定智能指针管理生命周期的对象。不需要维护生命周期的函数应该使用原始指针或者引用来代替。
+
+##### 示例，不好的
+
+```cpp
+// 被调用者
+void f(shared_ptr<widget>& w)
+{
+    // ...
+    use(*w); // 只使用了w——生命周期根本没有使用
+    // ...
+};
+
+// 调用者
+shared_ptr<widget> my_widget = /* ... */;
+f(my_widget);
+
+widget stack_widget;
+f(stack_widget); // 出错
+```
+
+##### 示例，好的
+
+```cpp
+// 被调用者
+void f(widget& w)
+{
+    // ...
+    use(w);
+    // ...
+};
+
+// 调用者
+shared_ptr<widget> my_widget = /* ... */;
+f(*my_widget);
+
+widget stack_widget;
+f(stack_widget); // 没问题——现在正常了
+```
+
+##### 实施
+
+* （简单）如果一个函数接受智能指针类型（重载了`operator->`或者`operator*`的类型）作为参数，该类型是可拷贝的，但函数只调用了`operator*`、`operator->`或`get()`中的一个，那么发出警告。建议使用`T*`或`T&`来代替。
+* 标记出这样的智能指针类型参数（重载了`operator->`或者`operator*`的类型）：它可拷贝/可移动，但从来不在函数体中拷贝/移动，而且从来不被修改，也不会被传递给其它会这样做的函数。这意味着所有权语义没有使用。建议使用`T*`或`T&`来代替。
+
+### R.31: 如果你有不属于`std`的智能指针，遵守`std`中的基本模式
+
+##### 理由
+
+下面的规则同样适用于任何类型的的第三方和自定义智能指针，而且对诊断那些常见的导致性能和正确性问题的智能指针错误很有用。你会希望这些规则适用于你使用的所有智能指针上。
+
+任何类型（包括主模板或者特化类型）如果重载了一元的`*`和`->`，就会认为是一个智能指针：
+
+* 如果它是可拷贝的，它会被当作基于引用计数的`shared_ptr`。
+* 如果它不可拷贝，它会被当作唯一的`unique_ptr`。
+
+##### 示例
+
+```cpp
+// 使用Boost的intrusive_ptr
+#include <boost/intrusive_ptr.hpp>
+void f(boost::intrusive_ptr<widget> p)  // 在“shared_ptr参数”的准则下是错误的
+{
+    p->foo();
+}
+
+// 使用Microsoft的CComPtr
+#include <atlbase.h>
+void f(CComPtr<widget> p)               // 在“shared_ptr参数”的准则下是错误的
+{
+    p->foo();
+}
+```
+
+这两个例子在“shared_ptr参数”准则下都是错误的：`p`是一个`shared_ptr`，但它的共享特性没有在这里使用，而且按值来传递它是隐含的劣化；这些函数应该只在它们需要参与`widget`的生命周期管理时才接受智能指针。否则，它们应该接受`widget*`，如果参数可以为`nullptr`的话。否则，更理想的是，这些函数应该接受`widget&`。这些智能指针符合`shared_ptr`的概念，因此相关指南的实施规则可以立即应用于这些智能指针上，同时可以暴露出这些常见的劣化。
+
+### R.32: 使用`unique_ptr<widget>`作为参数，来表示函数要获取`widget`的所有权
+
+##### 理由
+
+以这种方式使用`unique_ptr`，可以同时说明和保证函数调用的所有权转移。
+
+##### 示例
+
+```cpp
+void sink(unique_ptr<widget>); // 消费widget
+
+void uses(widget*);            // 只是使用widget
+```
+
+##### 示例，不好的
+
+```cpp
+void thinko(const unique_ptr<widget>&); // 通常不是你想要的
+```
+
+##### 实施
+
+* （简单）如果一个函数以左值引用接受`unique_ptr<T>`作为参数，而没有至少在一个代码路径上对它赋值或者调用它的`reset()`，发出警告。建议接受`T*`或者`T&`代替。
+* （简单）（（基本的））如果一个函数以`const`引用接受`unique_ptr<T>`参数，发出警告。建议接受`const T*`或者`const T&`代替。
+
+### R.33: 使用`unique_ptr<widget>&`作为参数，来表示函数要重设`widget`
+
+##### 理由
+
+以这种方式使用`unique_ptr`，可以同时说明和保证函数调用的重设语义。
+
+##### 注意
+
+“重设”的意思是“使指针或智能指针指向另一个对象”。
+
+##### 示例
+
+```cpp
+void reseat(unique_ptr<widget>&); // “将会”或者“可能”重设指针
+```
+
+##### 示例，不好的
+
+```cpp
+void thinko(const unique_ptr<widget>&); // 通常不是你想要的
+```
+
+##### 实施
+
+* （简单）如果一个函数以左值引用接受`unique_ptr<T>`作为参数，而没有至少在一个代码路径上对它赋值或者调用它的`reset()`，发出警告。建议接受`T*`或者`T&`代替。
+* （简单）（（基本的））如果一个函数以`const`引用接受`unique_ptr<T>`参数，发出警告。建议接受`const T*`或者`const T&`代替。
+
+### R.34: 使用`shared_ptr<widget>`作为参数，来表示函数是部分所有者
+
+##### 理由
+
+这会使得函数的所有权共享意图更清晰。
+
+##### 示例，好的
+
+```cpp
+void share(shared_ptr<widget>);            // 共享——“将会”持有引用计数
+
+void may_share(const shared_ptr<widget>&); // “可能”持有引用计数
+
+void reseat(shared_ptr<widget>&);          // “可能”重设指针
+```
+
+##### 实施
+
+* （简单）如果一个函数以左值引用接受`shared_ptr<T>`作为参数，而没有至少在一个代码路径上对它赋值或者调用它的`reset()`，发出警告。建议接受`T*`或者`T&`代替。
+* （简单）（（基本的））如果一个函数以值或者以`const`引用接受`shared_ptr<T>`参数，而没有至少在一个代码路径上拷贝或移动给另一个`shared_ptr`，发出警告。建议接受`T*`或者`T&`代替。
+* （简单）（（基本的））如果一个函数以右值引用接受`shared_ptr<T>`，发出警告。建议以值来接受。
+
+### R.35: 使用`shared_ptr<widget>&`作为参数，来表示函数可能会重设共享的指针
+
+##### 理由
+
+这会使得函数的重设意图更清晰。
+
+##### 注意
+
+“重设”的意思是“使指针或智能指针指向另一个对象”。
+
+##### 示例，好的
+
+```cpp
+void share(shared_ptr<widget>);            // 共享——“将会”持有引用计数
+
+void reseat(shared_ptr<widget>&);          // “可能”重设指针
+
+void may_share(const shared_ptr<widget>&); // “可能”持有引用计数
+```
+
+##### 实施
+
+* （简单）如果一个函数以左值引用接受`shared_ptr<T>`作为参数，而没有至少在一个代码路径上对它赋值或者调用它的`reset()`，发出警告。建议接受`T*`或者`T&`代替。
+* （简单）（（基本的））如果一个函数以值或者以`const`引用接受`shared_ptr<T>`参数，而没有至少在一个代码路径上拷贝或移动给另一个`shared_ptr`，发出警告。建议接受`T*`或者`T&`代替。
+* （简单）（（基本的））如果一个函数以右值引用接受`shared_ptr<T>`，发出警告。建议以值来接受。
+
+### R.36: 使用`const shared_ptr<widget>&`作为参数，来表示函数可能会持有对象的引用计数???
+
+##### 理由
+
+这会使得函数的???意图更清晰。
+
+##### 示例，好的
+
+```cpp
+void share(shared_ptr<widget>);            // 共享——“将会”持有引用计数
+
+void reseat(shared_ptr<widget>&);          // “可能”重设指针
+
+void may_share(const shared_ptr<widget>&); // “可能”持有引用计数
+```
+
+##### 实施
+
+* （简单）如果一个函数以左值引用接受`shared_ptr<T>`作为参数，而没有至少在一个代码路径上对它赋值或者调用它的`reset()`，发出警告。建议接受`T*`或者`T&`代替。
+* （简单）（（基本的））如果一个函数以值或者以`const`引用接受`shared_ptr<T>`参数，而没有至少在一个代码路径上拷贝或移动给另一个`shared_ptr`，发出警告。建议接受`T*`或者`T&`代替。
+* （简单）（（基本的））如果一个函数以右值引用接受`shared_ptr<T>`，发出警告。建议以值来接受。
+
+### R.37: 不要传递从别名智能指针获取的指针或引用
+
+##### 理由
+
+违反该准则是导致丢失引用计数和遇到悬挂指针的头号原因。在调用链上，函数应该优先传递原始指针和引用。在你从保持对象存活的智能指针中获得原始指针或引用的调用树顶端，你需要确保这个智能指针在调用树的下方不会被意外地重置或者赋值。
+
+##### 注意
+
+为了做到这一点，有时你需要获取智能指针的局部拷贝，在函数和调用树的过程中它稳固地保持对象存活。
+
+##### 示例
+
+考虑以下代码：
+
+```cpp
+// 全局变量（静态分配或者堆分配），或者是另一个局部变量的别名…
+shared_ptr<widget> g_p = ...;
+
+void f(widget& w)
+{
+    g();
+    use(w);  // A
+}
+
+void g()
+{
+    g_p = ...; // 糟糕，如果这是最后一个指向widget的shared_ptr，会销毁widget
+}
+```
+
+下面的代码不应该通过代码评审：
+
+```cpp
+void my_code()
+{
+    // 不好的：传递从非局部智能指针获取的指针或引用，
+    // 该智能指针可能会在f内部或者它调用的函数中意外地重置
+    f(*g_p);
+
+    // 不好的：相同的原因，只作为“this”指针来传递它
+    g_p->func();
+}
+```
+
+修复方法很简单——获取指针的局部拷贝来为你的调用树“保持引用计数”：
+
+```cpp
+void my_code()
+{
+    // 廉价的：增加1个计数可以覆盖整个函数以及其下的全部调用树
+    auto pin = g_p;
+
+    // 没问题：传递从局部的、非别名的智能指针获取的指针或引用
+    f(*pin);
+
+    // 没问题：相同的原因
+    pin->func();
+}
+```
+
+##### 实施
+
+* （简单）如果一个用于函数调用的指针或引用是从智能指针变量（`unique_ptr`或`shared_ptr`）获取的，而该变量是非局部的，或者它是局部的但可能是其它变量的别名，发出警告。如果智能指针是`shared_ptr`，那么建议获取智能指针的局部拷贝，然后从这个拷贝获取指针或引用。

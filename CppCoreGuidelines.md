@@ -7966,13 +7966,13 @@ void my_code()
 * ES.47: 使用`nullptr`而不是`0`或`NULL`
 * ES.48: 避免转型
 * ES.49: 如果你必须使用转型，使用具名的转型
-* ES.50: 不要转型去掉`const`
-* ES.55: 避免需要进行范围检查
+* ES.50: 不要丢弃`const`
+* ES.55: 避免进行范围检查
 * ES.56: 只有当你需要显式地移动对象到另一个作用域时才使用`std::move()`
 * ES.60: 避免在资源管理函数外部使用`new`和`delete`
 * ES.61: 使用`delete[]`删除数组以及使用`delete`删除非数组
 * ES.62: 不要比较指向不同数组的指针
-* ES.63: 不要切片
+* ES.63: 不要发生对象切割
 * ES.64: 使用`T{e}`表示法来构造
 * ES.65: 不要解引用无效的指针
 
@@ -9853,3 +9853,684 @@ auto p = reinterpret_cast<Device_register>(0x800);  // 危险的
 * 标记出C风格和函数式转型。
 * 类型配置禁止了`reinterpret_cast`。
 * 当在算术类型之间使用`static_cast`时，类型配置会发出警告。
+
+### ES.50: 不要丢弃`const`
+
+##### 理由
+
+这制造了一个没有`const`的谎言。如果变量真的被声明为`const`，“丢弃`const`”的结果是未定义行为。
+
+##### 示例，不好的
+
+```cpp
+void f(const int& i)
+{
+    const_cast<int&>(i) = 42;   // 不好的
+}
+
+static int i = 0;
+static const int j = 0;
+
+f(i); // 无声的副作用
+f(j); // 未定义行为
+```
+
+##### 示例
+
+有时，你可能会受到求助`const_cast`来避免代码重复的诱惑，例如，当两个只在`const`属性上不同的访问器函数有相似的实现时。例如：
+
+```cpp
+class Bar;
+
+class Foo {
+public:
+    // 不好的，重复的逻辑
+    Bar& get_bar() {
+        /* 复杂的逻辑，获取my_bar的非const引用 */
+    }
+
+    const Bar& get_bar() const {
+        /* 复杂的逻辑，获取my_bar的const引用 */
+    }
+private:
+    Bar my_bar;
+};
+```
+
+替代方案是，共享实现。通常，你可以简单地让非`const`函数调用`const`函数。然而，有时还是会存在复杂的逻辑导致下面这种仍然使用`const_cast`的模式：
+
+```cpp
+class Foo {
+public:
+    // 并不是很好，非const调用了const版本，但还是使用了const_cast
+    Bar& get_bar() {
+        return const_cast<Bar&>(static_cast<const Foo&>(*this).get_bar());
+    }
+    const Bar& get_bar() const {
+        /* 复杂的逻辑，获取my_bar的const引用 */
+    }
+private:
+    Bar my_bar;
+};
+```
+
+在正确使用的情况下，这种模式是安全的，因为调用者必须首先有一个非`const`对象。即使如此，这也不是理想的做法，因为这个安全性难以作为检查器规则自动地保证。
+
+替代方案是，把通用代码放到一个通用的辅助函数中——并且使其成为模板，以让它可以推导出`const`。这根本不会用到任何`const_cast`：
+
+```cpp
+class Foo {
+public:                         // 好的
+          Bar& get_bar()       { return get_bar_impl(*this); }
+    const Bar& get_bar() const { return get_bar_impl(*this); }
+private:
+    Bar my_bar;
+
+    template<class T>           // 好的，可以推导出T是const或非const
+    static auto get_bar_impl(T& t) -> decltype(t.get_bar())
+        { /* 复杂的逻辑，获取my_bar的引用，可能是const引用 */ }
+};
+```
+
+##### 例外
+
+当调用带有不正确`const`的函数时，你可能需要用转型去掉`const`。应把这些函数包装在一个内联的带有正确`const`的包装器中，把转型封装到一个地方。
+
+##### 示例
+
+有时，“丢弃`const`”允许更新一个在其它情况下是不可变的对象的一些瞬时信息。这方面的例子是缓存、记忆化和预计算。这些例子通常也使用`const_cast`来处理，或者使用了更好的`mutable`或间接访问。
+
+考虑为开销大的操作保留上一次的计算结果：
+
+```cpp
+int compute(int x); // 计算x的值；假设这是开销大的
+
+class Cache {   // 有些类型为int->int操作实现了缓存
+public:
+    pair<bool, int> find(int x) const;   // 是否有x的对应值？
+    void set(int x, int y);             // 使y为x的对应值
+    // ...
+private:
+    // ...
+};
+
+class X {
+public:
+    int get_val(int x)
+    {
+        auto p = cache.find(x);
+        if (p.first) return p.second;
+        int val = compute(x);
+        cache.set(x, val); // 插入x的对应值
+        return val;
+    }
+    // ...
+private:
+    Cache cache;
+};
+```
+
+这里，`get_val()`在逻辑上是常量的，所以我们想让它为`const`成员。这样做之后我们仍然需要改变`cache`，所以人们有时会求助于`const_cast`：
+
+```cpp
+class X {   // 基于转型的值得怀疑的解决方法
+public:
+    int get_val(int x) const
+    {
+        auto p = cache.find(x);
+        if (p.first) return p.second;
+        int val = compute(x);
+        const_cast<Cache&>(cache).set(x, val);   // 丑陋的
+        return val;
+    }
+    // ...
+private:
+    Cache cache;
+};
+```
+
+幸运的是，有一个更好的解决方法：把`cache`声明为可变的，即使对于`const`对象也是：
+
+```cpp
+class X {   // 更好的解决方法
+public:
+    int get_val(int x) const
+    {
+        auto p = cache.find(x);
+        if (p.first) return p.second;
+        int val = compute(x);
+        cache.set(x, val);
+        return val;
+    }
+    // ...
+private:
+    mutable Cache cache;
+};
+```
+
+另一个可选的解决方法是保存指向`cache`的指针：
+
+```cpp
+class X {   // 没问题，但稍微有点凌乱的解决方法
+public:
+    int get_val(int x) const
+    {
+        auto p = cache->find(x);
+        if (p.first) return p.second;
+        int val = compute(x);
+        cache->set(x, val);
+        return val;
+    }
+    // ...
+private:
+    unique_ptr<Cache> cache;
+};
+```
+
+这个解决方法是最灵活的，但需要显式地构造和析构`*cache`（很可能是在`X`的构造函数和析构函数中）。
+
+在任何变种情况下，我们都必须防止`cache`在多线程代码下出现数据竞争，可能会使用`std::mutex`。
+
+##### 实施
+
+* 标记出`const_cast`。
+* 该准则是相关配置中类型安全配置的一部分。
+
+### ES.55: 避免进行范围检查
+
+##### 理由
+
+不会发生溢出的构件永远不会溢出（而且常常运行地更快）。
+
+##### 示例
+
+```cpp
+for (auto& x : v)      // 打印出v的所有元素
+    cout << x << '\n';
+
+auto p = find(v, x);   // 在v中查找x
+```
+
+##### 实施
+
+查找显式的范围检查，并且启发式地建议可选方案。
+
+### ES.56: 只有当你需要显式地移动对象到另一个作用域时才使用`std::move()`
+
+##### 理由
+
+我们使用移动而不是拷贝来避免复制，以及提高性能。
+
+移动一般会留下一个空对象（C.64），该对象可能会令人惊讶，甚至是危险的，因此我们尽量避免移动左值对象（它们稍后可能会被访问）。
+
+##### 注意
+
+当源对象是右值时，移动会隐式地执行，所以不要在那些情况下显式地使用`move`来让代码毫无意义地复杂化。相反，写出一个返回了值的简短函数，函数返回和调用者接收返回都会自然地被优化。
+
+一般情况下，遵守这份文档中的指南（包括不要让变量的作用域不必要的大、写出会返回值的简短函数、返回局部变量）有助于消除大部分显式使用`std::move`的需要。
+
+显式的`move`用来显式地移动对象到另一个作用域，尤其是用于把对象传递给一个“接收器”函数，以及在移动操作自身（移动构造函数、移动赋值操作符）的实现中，还有交换操作中。
+
+##### 示例，不好的
+
+```cpp
+void sink(X&& x);   // sink接管x的所有权
+
+void user()
+{
+    X x;
+    // 错误：不能把左值绑定到右值
+    sink(x);
+    // 没问题：sink取走了x的内容，x现在必须假设是空的
+    sink(std::move(x));
+
+    // ...
+
+    // 可能是一个错误
+    use(x);
+}
+```
+
+通常，`std::move()`用来传递给`&&`参数。在你这样做之后，要认为对象已经被移走（参阅C.64），并且不要再读取它的状态，直到你首次给它设置新的值。
+
+```cpp
+void f() {
+    string s1 = "supercalifragilisticexpialidocious";
+
+    string s2 = s1;             // 没问题，取一份拷贝
+    assert(s1 == "supercalifragilisticexpialidocious");  // 没问题
+
+    // 不好的，如果你想继续使用s1的值
+    string s3 = move(s1);
+
+    // 不好的，断言很可能失败，s1很可能被修改了
+    assert(s1 == "supercalifragilisticexpialidocious");
+}
+```
+
+##### 示例
+
+```cpp
+void sink(unique_ptr<widget> p);  // 传递p的所有权给sink()
+
+void f() {
+    auto w = make_unique<widget>();
+    // ...
+    sink(std::move(w));               // 没问题，给了sink()
+    // ...
+    sink(w);    // 错误：unique_ptr经过谨慎的设计，因此你不能拷贝它
+}
+```
+
+##### 注意
+
+`std::move()`是转型到`&&`的伪装；它自身不会移动任何东西，只是把一个具名对象标记成可以被移走的候选对象。语言已经知道对象可以被移走的常见情况，特别是从函数中返回值时，因此不要用冗余的`std::move()`使代码复杂化。
+
+永远不要只是因为你听说“它更高效”而使用`std::move`。一般情况下，不要相信没有数据的“效率”宣言（???）。一般情况下，不要在没有理由的情况下使你的代码复杂化（???）。
+
+##### 示例，不好的
+
+```cpp
+vector<int> make_vector() {
+    vector<int> result;
+    // ... 用数据填充result
+    return std::move(result);       // 不好的：只写“return result;”就行了
+}
+```
+
+永远不要写`return move(local_variable);`，因为语言已经知道变量是移动的候选者。在这个代码中写`move`没有帮助，而且实际上可能会有损害，因为在一些编译器上它创建了一个额外的对局部变量的引用别名，妨碍了RVO（返回值优化）。
+
+##### 示例，不好的
+
+```cpp
+vector<int> v = std::move(make_vector());   // 不好的：std::move完全是冗余的
+```
+
+永远不要在已返回的值上写`move`，例如`x = move(f());`，`f`以值返回。语言已经知道返回值是临时对象，可以被移走。
+
+##### 示例
+
+```cpp
+void mover(X&& x) {
+    call_something(std::move(x));         // 没问题
+    call_something(std::forward<X>(x));   // 不好的，不要在右值引用上使用std::forward
+    call_something(x);                    // 可疑的，为什么不用std::move？
+}
+
+template<class T>
+void forwarder(T&& t) {
+    call_something(std::move(t));         // 不好的，不要在转发引用上使用std::move
+    call_something(std::forward<T>(t));   // 没问题
+    call_something(t);                    // 可疑的，为什么不用std::forward？
+}
+```
+
+##### 实施
+
+* 标记出`std::move(x)`的使用，其中`x`是一个右值，或者语言已将其视为右值，包括`return std::move(local_variable);`，以及在以值返回的函数上的`std::move(f())`。
+* 标记出接受`S&&`参数的函数，如果没有`const S&`的重载来处理左值的话。
+* 标记出`std::move`参数，除非参数类型是以下几种：`X&&`右值引用；`T&&`转发引用，其中`T`是模板参数类型；或者按值传递并且被传递类型只能移动。
+* 标记出用在转发引用（即`T&&`，其中`T`是模板参数类型）上的`std::move`。使用`std::forward`代替。
+* 标记出用在非右值引用上的`std::move`（上一条规则的更通用情况，以覆盖非转发的情况）。
+* 标记出用在右值引用（即`X&&`，其中`X`是具体类型）上的`std::forward`。使用`std::move`代替。
+* 标记出用在非转发引用上的`std::forward`。（上一条规则的更通用情况，以覆盖非移动的情况）
+* 标记出对象可能被移走后，对它的下一个操作是`const`操作的情况；这里首先应该有一个非`const`操作介入，理想的是一个赋值操作，来首次重设对象的值。
+
+### ES.60: 避免在资源管理函数外部使用`new`和`delete`
+
+##### 理由
+
+在应用代码中直接的资源管理是容易出错且冗长的。
+
+##### 注意
+
+也被称为“没有裸露的`new`！”。
+
+##### 示例，不好的
+
+```cpp
+void f(int n)
+{
+    auto p = new X[n];   // n个默认构造的X
+    // ...
+    delete[] p;
+}
+```
+
+在`...`部分可能存在一些代码导致`delete`永远不会执行。
+
+**另见**：R: 资源管理
+
+##### 实施
+
+标记出裸露的`new`和裸露的`delete`。
+
+### ES.61: 使用`delete[]`删除数组以及使用`delete`删除非数组
+
+##### 理由
+
+这是语言要求的，错误的用法会导致资源释放错误以及/或者内存损坏。
+
+##### 示例，不好的
+
+```cpp
+void f(int n)
+{
+    auto p = new X[n];   // n个默认构造的X
+    // ...
+    delete p;   // 错误：只是删除对象p，而不是删除数组p[]
+}
+```
+
+##### 注意
+
+这个例子不仅违反了上一个示例的没有裸露的`new`准则，它还有更多的问题。
+
+##### 实施
+
+* 如果`new`和`delete`在同一个作用域中，可以标记出其中的错误用法。
+* 如果`new`和`delete`在构造函数/析构函数对中，可以标记出其中的错误用法。
+
+### ES.62: 不要比较指向不同数组的指针
+
+##### 理由
+
+这样做的结果是未定义的。
+
+##### 示例，不好的
+
+```cpp
+void f(int n)
+{
+    int a1[7];
+    int a2[9];
+    if (&a1[5] < &a2[7]) {}       // 不好的：未定义
+    if (0 < &a1[5] - &a2[7]) {}   // 不好的：未定义
+}
+```
+
+##### 注意
+
+这个例子有很多问题。
+
+##### 实施
+
+???
+
+### ES.63: 不要发生对象切割
+
+##### 理由
+
+对象切割——即通过赋值或初始化只拷贝对象的一部分——这通常会导致错误，因为对象被认为是一个整体。在罕见的情况下，有意使用对象切割的代码是令人惊讶的。
+
+##### 示例
+
+```cpp
+class Shape { /* ... */ };
+class Circle : public Shape { /* ... */ Point c; int r; };
+
+Circle c {{0, 0}, 42};
+Shape s {c};    // 拷贝Circle的Shape部分
+```
+
+这个结果是无意义的，因为中点和半径不会从`c`拷贝到`s`。对此的第一个防御是在定义基类`Shape`的时候不允许这样做。
+
+##### 替代方案
+
+如果你想要切割，定义一个显式的操作来执行。这样可以减少读者的困惑。例如：
+
+```cpp
+class Smiley : public Circle {
+    public:
+    Circle copy_circle();
+    // ...
+};
+
+Smiley sm { /* ... */ };
+Circle c1 {sm};  // 理想地被Circle的定义阻止了
+Circle c2 {sm.copy_circle()};
+```
+
+##### 实施
+
+对对象切割进行警告。
+
+### ES.64: 使用`T{e}`表示法来构造
+
+##### 理由
+
+`T{e}`构造语法显式地说明构造是期望的操作。`T{e}`构造语法不允许收缩转换。`T{e}`是唯一安全和通用的表达式来用表达式`e`构造类型`T`的值。转型表示法`T(e)`和`(T)e`都不是安全和通用的。
+
+##### 示例
+
+对于内置类型，这个构造表示法可以防止收缩转换和重新解析：
+
+```cpp
+void use(char ch, int i, double d, char* p, long long lng)
+{
+    int x1 = int{ch};     // 没问题，但是啰嗦
+    int x2 = int{d};      // 错误：double->int收缩转换；如果你需要的话使用转型
+    int x3 = int{p};      // 错误：指针->int；如果你真的需要的话使用reinterpret_cast
+    int x4 = int{lng};    // 错误：long long->int收缩转换；如果你需要的话使用转型
+
+    int y1 = int(ch);     // 没问题，但是啰嗦
+    int y2 = int(d);      // 不好的：double->int收缩转换；如果你需要的话使用转型
+    int y3 = int(p);      // 不好的：指针->int；如果你真的需要的话使用reinterpret_cast
+    int y4 = int(lng);    // 不好的：long long->int收缩转换；如果你需要的话使用转型
+
+    int z1 = (int)ch;     // 没问题，但是啰嗦
+    int z2 = (int)d;      // 不好的：double->int收缩转换；如果你需要的话使用转型
+    int z3 = (int)p;      // 不好的：指针->int；如果你真的需要的话使用reinterpret_cast
+    int z4 = (int)lng;    // 不好的：long long->int收缩转换；如果你需要的话使用转型
+}
+```
+
+当使用`T(e)`或`(T)e`表示法的时候，整型和指针之间的转换是由实现定义的，而且在具有不同整型和指针大小的平台之间不具备可移植性。
+
+##### 注意
+
+避免转型（显式类型转换），如果你必须要这样做，优先使用具名的转型。
+
+##### 注意
+
+当没有歧义的时候，`T`可以从`T{e}`中去掉。
+
+```cpp
+complex<double> f(complex<double>); 
+
+auto z = f({2*pi, 1});
+```
+
+##### 注意
+
+这个构造表示法是最普遍的初始化器表示法。
+
+##### 例外
+
+`std::vector`和其它容器在我们拥有`{}`作为构造表示法之前就已经定义了。考虑以下代码：
+
+```cpp
+vector<string> vs {10};                           // 10个空字符串
+vector<int> vi1 {1, 2, 3, 4, 5, 6, 7, 8, 9, 10};  // 10个元素，从1到10
+vector<int> vi2 {10};                             // 1个元素，值为10
+```
+
+我们如何得到含有10个被默认初始化的`int`的`vector`？
+
+```cpp
+vector<int> v3(10); // 值为0的10个元素
+```
+
+在元素数量上使用`()`而不是`{}`是传统习惯（回到1980年代初），这很难改变，但仍然是一个设计错误：对于元素类型会与元素数量发生混淆的容器，我们有一个必须要解决的歧义。传统的解决方法是把`{10}`解析为只有一个元素的列表，并且使用`(10)`来区分大小。
+
+在新的代码中不需要重复犯这个错误。我们可以定义一个类型来表示元素的数量：
+
+```cpp
+struct Count { int n; };
+
+template<typename T>
+class Vector {
+public:
+    Vector(Count n);                     // n个默认初始化的元素
+    Vector(initializer_list<T> init);    // init.size()个元素
+    // ...
+};
+
+Vector<int> v1{10};
+Vector<int> v2{Count{10}};
+Vector<Count> v3{Count{10}};    // 是的，仍然有一个非常小的问题
+```
+
+剩下的主要问题是为`Count`找一个合适的名称。
+
+##### 实施
+
+标记出C风格的`(T)e`和函数式风格的`T(e)`转型。
+
+### ES.65: 不要解引用无效的指针
+
+##### 理由
+
+解引用无效的指针，例如`nullptr`，是未定义的行为，通常会导致立即的崩溃，错误的结果，或者内存损坏。
+
+##### 注意
+
+这个准则是显然的，并且广为人知的语言准则，但很难遵守。它需要良好的编码风格、库支持、以及静态分析在没有重大开销的情况下消除违规行为。这是关于C++资源和类型安全模型讨论的主要部分。
+
+**另见**：
+
+* 使用[RAII]避免生命周期问题。
+* 使用[unique_ptr]避免生命周期问题。
+* 使用[shared_ptr]避免生命周期问题。
+* 当`nullptr`不是可能的取值时，使用引用。
+* 使用`not_null`来尽早捕捉非预期的`nullptr。
+* 使用边界配置来避免范围错误。
+
+##### 示例
+
+```cpp
+void f()
+{
+    int x = 0;
+    int* p = &x;
+
+    if (condition()) {
+        int y = 0;
+        p = &y;
+    } // p变成无效值
+
+    *p = 42;            // 糟糕，如果分支执行了，p是无效的
+}
+```
+
+为了解决这个问题，可以延长指针指向对象的生命周期，或者缩短指针的生命周期（把解引用移动到被指向对象的生命周期结束之前）。
+
+```cpp
+void f1()
+{
+    int x = 0;
+    int* p = &x;
+
+    int y = 0;
+    if (condition()) {
+        p = &y;
+    }
+
+    *p = 42;            // 没问题，p指向x或者y，两者仍在作用域中
+}
+```
+
+不幸的是，大部分无效指针问题更难定位，更难修复。
+
+##### 示例
+
+```cpp
+void f(int* p)
+{
+    int x = *p; // 不好的：我们怎么知道p是有效的？
+}
+```
+
+有大量这样的代码存在。大部分能工作——经过许多测试之后——但孤立来看，这不可能说明`p`是否可能为`nullptr`。因此，这也是错误的主要来源。有许多方法来处理这个潜在的问题：
+
+```cpp
+void f1(int* p) // 处理nullptr
+{
+    if (!p) {
+        // 处理nullptr（分配、返回、抛异常、让p指向某些东西，都可以）
+    }
+    int x = *p;
+}
+```
+
+检测是否为`nullptr`存在两个潜在问题：
+
+* 如果我们找到了`nullptr`，需要做些什么事情？这并不总是清晰的。
+* 检测可能是冗余的，并且/可能相对来说开销更大。
+* 检测是用来防止违规还是所需逻辑的一部分，这是不清晰的。
+
+```cpp
+void f2(int* p) // 声明p不应该为nullptr
+{
+    assert(p);
+    int x = *p;
+}
+```
+
+这只会在断言检查开启之后才会带来开销，而且能给编译器/分析器带来有用的信息。如果/当C++获得了契约的直接支持，这甚至能执行得更好：
+
+```cpp
+void f3(int* p) // 声明p不应该为nullptr
+    [[expects: p]]
+{
+    int x = *p;
+}
+```
+
+另外，我们可以使用`gsl::not_null`来确保`p`不为`nullptr`。
+
+```cpp
+void f(not_null<int*> p)
+{
+    int x = *p;
+}
+```
+
+这些补救措施只处理`nullptr`。要记住还有其它途径可以得到无效的指针。
+
+##### 示例
+
+```cpp
+void f(int* p)  // 旧代码，不使用owner
+{
+    delete p;
+}
+
+void g()        // 旧代码：使用裸露的new
+{
+    auto q = new int{7};
+    f(q);
+    int x = *q; // 糟糕：解引用无效指针
+}
+```
+
+##### 示例
+
+```cpp
+void f()
+{
+    vector<int> v(10);
+    int* p = &v[5];
+    v.push_back(99); // 可能重新分配v的元素
+    int x = *p; // 糟糕：解引用了可能无效的指针
+}
+```
+
+##### 实施
+
+这个准则是生命周期配置的一部分。
+
+* 标记出对指针的解引用，该指针指向的对象已经超出了作用域。
+* 标记出对指针的解引用，该指针可能已经被赋值为`nullptr`而失效。
+* 标记出对指针的解引用，该指针可能已经被`delete`删除而失效。
+* 标记出对指针的解引用，该指针指向容器元素，而该元素可能已经被解引用而失效。

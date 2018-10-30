@@ -11191,7 +11191,7 @@ unsigned char y = ~x;   // y == 0b0101'0101;
 
 ##### 注意
 
-无符号类型对摸运算也是有用的。但是，如果你想使用模运算，要根据需要添加注释，注明对周边行为的依赖，因为这样的代码对很多程序员来说都是令人惊讶的。
+无符号类型对摸运算也是有用的。但是，如果你想使用模运算，要根据需要添加注释，注明对回绕行为的依赖，因为这样的代码对很多程序员来说都是令人惊讶的。
 
 ##### 实施
 
@@ -11366,3 +11366,143 @@ double divide(int a, int b) {
 ##### 实施
 
 * 标记整数除法，其中的除数可能为0。
+
+### ES.106: 不要试图通过使用`unsigned`来避免负值
+
+##### 理由
+
+选择`unsigned`意味着会对整数的常见行为，包括模运算，带来许多改变，会隐藏掉与溢出相关的警告，以及为有符号/无符号混合相关的错误打开了大门。使用`unsigned`实际上并没有消除负值的可能性。
+
+##### 示例
+
+```cpp
+unsigned int u1 = -2;   // 有效的：u1的值是4294967294
+int i1 = -2;
+unsigned int u2 = i1;   // 有效的：u2的值是4294967294
+int i2 = u2;            // 有效的：i2的值是-2
+```
+
+包含这类（完全合法的）结构的问题在实际代码中难以定位，而且是许多现实错误的来源。考虑以下代码：
+
+```cpp
+unsigned area(unsigned height, unsigned width) { 
+    return height*width; 
+} // [参阅](#Ri-expects)
+// ...
+int height;
+cin >> height;
+auto a = area(height, 2);   // 如果输入是-2，a变成4294967292
+```
+
+记住，当`-1`赋值给`unsigned int`时，会变成最大的`unsigned int`。同时，由于无符号运算是模运算，它的操作不会溢出，只是回绕。
+
+##### 示例
+
+```cpp
+unsigned max = 100000;    // “意外的拼写错误”，我想要指定10'000
+unsigned short x = 100;
+while (x < max) x += 100; // 无限循环
+```
+
+如果`x`是一个有符号的`short`，我们会收到溢出导致未定义行为的警告。
+
+##### 可选方案
+
+* 使用有符号整数并且检查`x >= 0`
+* 使用正整数类型
+* 使用整数子范围类型
+* `Assert(-1 < x)`
+
+例如：
+
+```cpp
+struct Positive {
+    int val;
+    Positive(int x) :val{x} { Assert(0 < x); }
+    operator int() { return val; }
+};
+
+int f(Positive arg) { return arg; }
+
+int r1 = f(2);
+int r2 = f(-2);  // throws
+```
+
+##### 注意
+
+???
+
+##### 实施
+
+困难：有很多代码正在使用`unsigned`，而且我们没有提供一个切实可行的正数类型。
+
+### ES.107: 不要使用`unsigned`作为下标，优先使用`gsl::index`
+
+##### 理由
+
+为了避免有符号/无符号的困扰。为了启用更好的优化。为了启用更好的错误检测。为了避免`auto`和`int`的陷阱。
+
+##### 示例，不好的
+
+```cpp
+vector<int> vec = /*...*/;
+
+for (int i = 0; i < vec.size(); i += 2)                    // 可能不够大
+    cout << vec[i] << '\n';
+for (unsigned i = 0; i < vec.size(); i += 2)               // 有回绕的风险
+    cout << vec[i] << '\n';
+for (auto i = 0; i < vec.size(); i += 2)                   // 可能不够大
+    cout << vec[i] << '\n';
+for (vector<int>::size_type i = 0; i < vec.size(); i += 2) // 啰嗦的
+    cout << vec[i] << '\n';
+for (auto i = vec.size()-1; i >= 0; i -= 2)                // 有问题
+    cout << vec[i] << '\n';
+for (int i = vec.size()-1; i >= 0; i -= 2)                 // 可能不够大
+    cout << vec[i] << '\n';
+```
+
+##### 示例，好的
+
+```cpp
+vector<int> vec = /*...*/;
+
+for (gsl::index i = 0; i < vec.size(); i += 2)             // 没问题
+    cout << vec[i] << '\n';
+for (gsl::index i = vec.size()-1; i >= 0; i -= 2)          // 没问题
+    cout << vec[i] << '\n';
+```
+
+##### 注意
+
+内置数组使用有符号数作为下标。标准库容器使用无符号数作为下标。因此，不可能存在完美且完全兼容的解决方案（除非并且直到标准库容器在将来的某天改成使用有符号数作为下标）。对于已知的无符号数以及有符号数/无符号数混合问题，最好是使用足够大小的（有符号）整数来解决，这是通过`gsl::index`来保证的。
+
+##### 示例
+
+```cpp
+template<typename T>
+struct My_container {
+public:
+    // ...
+    T& operator[](gsl::index i);    // 不是无符号数
+    // ...
+};
+```
+
+##### 示例
+
+```cpp
+??? 演示经过改进的代码生成以及错误检测的可能 ???
+```
+
+##### 可选方案
+
+给用户的可选方案：
+
+* 使用算法
+* 使用基于范围的for
+* 使用迭代器/指针
+
+##### 实施
+
+* 只要标准库容器有错误，就会非常棘手。
+* （为了避免干扰，）在混合了有符号/无符号的比较中，如果其中一个参数是`sizeof`或者是对容器`.size()`的调用，并且另一个参数是`ptrdiff_t`时，不要标记出来。

@@ -12191,3 +12191,132 @@ Pool* use()
 ##### 实施
 
 这取决于应用程序的创建者选择哪些支持工具，这些工具对特定的应用程序是有价值的。
+
+## CP.con: 并发
+
+这部分聚焦于通过共享数据进行多线程通信的相对特别的用法。
+
+* 对于并行算法，参阅并行。
+* 对于不使用显式共享的任务内通信，参阅发消息。
+* 对于向量并行代码，参阅向量化。
+* 对于无锁编程，参阅无锁化。
+
+并发准则概要：
+
+* CP.20: 使用RAII，永远不要使用原始的`lock()`/`unlock()`
+* CP.21: 使用`std::lock()`或`std::scoped_lock`来获取多个`mutex`
+* CP.22: 永远不要在持有锁的时候调用未知代码（例如，一个回调）
+* CP.23: 把联结的`thread`视为作用域内的容器
+* CP.24: 把`thread`视为全局容器
+* CP.25: 优先使用`gsl::joining_thread`而不是`std::thread`
+* CP.26: 不要调用线程的`detach()`
+* CP.31: 在线程间以值传递少量数据，而不是以引用或指针
+* CP.32: 使用`shared_ptr`在不相关的`thread`之间共享所有权
+* CP.40: 尽量避免上下文切换
+* CP.41: 尽量避免线程创建和销毁
+* CP.42: 不要无条件地调用`wait`
+* CP.43: 尽量减少花费在关键段中的时间
+* CP.44: 记得为你的`lock_guard`和`unique_lock`命名
+* CP.50: 与受保护的数据一起定义`mutex`。可能的话使用`synchronized_value<T>`
+* ??? 什么时候使用自旋锁
+* ??? 什么时候使用`try_lock()`
+* ??? 什么时候有限使用`lock_guard`而不是`unique_lock`
+* ??? Time multiplexing
+* ??? 什么时候/如何使用`new thread`
+
+### CP.20: 使用RAII，永远不要使用原始的`lock()`/`unlock()`
+
+##### 理由
+
+避免未释放锁导致的严重错误。
+
+##### 示例，不好的
+
+```cpp
+mutex mtx;
+
+void do_stuff()
+{
+    mtx.lock();
+    // ... 做事情 ...
+    mtx.unlock();
+}
+```
+
+迟早有人会忘记`mtx.unlock()`，在`... 做事情 ...`中插入`return`，抛出异常，或者其它事情。
+
+```cpp
+mutex mtx;
+
+void do_stuff()
+{
+    unique_lock<mutex> lck {mtx};
+    // ... 做事情 ...
+}
+```
+
+##### 实施
+
+标记出对成员函数`lock()`和`unlock()`的调用。???
+
+### CP.21: 使用`std::lock()`或`std::scoped_lock`来获取多个`mutex`
+
+##### 理由
+
+避免在多个`mutex`上出现死锁。
+
+##### 示例
+
+这是在主动要求出现死锁：
+
+```cpp
+// 线程1
+lock_guard<mutex> lck1(m1);
+lock_guard<mutex> lck2(m2);
+
+// 线程2
+lock_guard<mutex> lck2(m2);
+lock_guard<mutex> lck1(m1);
+```
+
+相反，使用`lock()`：
+
+```cpp
+// 线程1
+lock(m1, m2);
+lock_guard<mutex> lck1(m1, adopt_lock);
+lock_guard<mutex> lck2(m2, adopt_lock);
+
+// 线程2
+lock(m2, m1);
+lock_guard<mutex> lck2(m2, adopt_lock);
+lock_guard<mutex> lck1(m1, adopt_lock);
+```
+
+或者（更好的方法，但仅限C++17）：
+
+```cpp
+// 线程1
+scoped_lock<mutex, mutex> lck1(m1, m2);
+
+// 线程2
+scoped_lock<mutex, mutex> lck2(m2, m1);
+```
+
+这里，`thread1`和`thread2`的作者依然没有在`mutex`的顺序上达成一致，但顺序不再是问题。
+
+##### 注意
+
+在实际代码中，`mutex`很少被命名为可以方便地提醒程序员它们预期的关系以及预期的获取顺序。在实际代码中，`mutex`并非总是能够在连续的行中方便地获取。
+
+在C++17中，可以简单地写：
+
+```cpp
+lock_guard lck1(m1, adopt_lock);
+```
+
+`mutex`的类型会被推导出来。
+
+##### 实施
+
+检测对多个`mutex`的获取。通常这是不可确定的，但捕捉常见的简单例子（像上面那个）是容易的。

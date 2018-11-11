@@ -12209,7 +12209,7 @@ Pool* use()
 * CP.23: 把`joining_thread`视为作用域内的容器
 * CP.24: 把`thread`视为全局容器
 * CP.25: 优先使用`gsl::joining_thread`而不是`std::thread`
-* CP.26: 不要调用线程的`detach()`
+* CP.26: 不要调用`detach()`分离线程
 * CP.31: 在线程间以值传递少量数据，而不是以引用或指针
 * CP.32: 使用`shared_ptr`在不相关的`thread`之间共享所有权
 * CP.40: 尽量避免上下文切换
@@ -12450,3 +12450,164 @@ void some_fct(int* p)
 ##### 实施
 
 标记出试图传递局部变量到可能已由`detach()`分离的线程。
+
+### CP.25: 优先使用`gsl::joining_thread`而不是`std::thread`
+
+##### 理由
+
+`joining_thread`是会在其作用域结束的时候联结的线程。被分离的线程更加难监控。对于被分离的线程来说（以及可能会被分离的线程），更加难保证没有错误。
+
+##### 示例，不好的
+
+```cpp
+void f() { std::cout << "Hello "; }
+
+struct F {
+    void operator()() { std::cout << "parallel world "; }
+};
+
+int main()
+{
+    std::thread t1{f};      // f()在另一个线程执行
+    std::thread t2{F()};    // F()()在另一个线程执行
+}  // 发现这里的缺陷
+```
+
+##### 示例
+
+```cpp
+void f() { std::cout << "Hello "; }
+
+struct F {
+    void operator()() { std::cout << "parallel world "; }
+};
+
+int main()
+{
+    std::thread t1{f};      // f()在另一个线程执行
+    std::thread t2{F()};    // F()()在另一个线程执行
+
+    t1.join();
+    t2.join();
+}  // 剩下一个不好的缺陷
+```
+
+##### 示例，不好的
+
+决定调用`join()`还是`detach()`的代码可能是复杂的，甚至会在调用这些函数的线程中决定，又或者在创建新线程来调用这些函数的线程中决定：
+
+```cpp
+void tricky(thread* t, int n)
+{
+    // ...
+    if (is_odd(n))
+        t->detach();
+    // ...
+}
+
+void use(int n)
+{
+    thread t { tricky, this, n };
+    // ...
+    // ... 我是否应该在这里联结？ ...
+}
+```
+
+这使生命周期的分析变得很复杂，而且在并非罕见的下，会导致生命周期的分析变得不可能。这意味着我们不能安全地在线程中使用`use()`的局部对象，或者在`use()`中使用线程的局部对象。
+
+##### 注意
+
+让“永生的线程”全局化，把它们放到封闭的作用域中，或者把它们放到自由存储上，而不是调用`detach()`。不要分离线程。
+
+##### 注意
+
+由于旧代码和第三方库使用了`std::thread`，这个准则可能会难以引入。
+
+##### 实施
+
+标记出`std::thread`的使用：
+
+* 建议使用`gsl::joining_thread`.
+* 如果线程被分离，建议“导出所有权”到封闭的作用域中。
+* 如果联结或分离不明确，发出严重的警告。
+
+### CP.26: 不要调用`detach()`分离线程
+
+##### 理由
+
+通常，让生命周期超出其创建作用域的需求是线程任务所固有的，但通过`detach`实现这个想法使得更加难监控分离的线程，也更加难与分离的线程通信。尤其是，更加难确保这个线程按预期地完成，或者存活了预期的时间。
+
+##### 示例
+
+```cpp
+void heartbeat();
+
+void use()
+{
+    std::thread t(heartbeat);             // 不联结；heartbeat要一直执行
+    t.detach();
+    // ...
+}
+```
+
+这是线程的合理使用，其中的`detach()`是常见的用法。不过还是有一些问题。我们如何监控被分离的线程来看它是否活着？心跳可能会出现一些问题，而丢失心跳对需要它的系统来说是很严重的。因此，我们需要与心跳线程通信（例如，通过消息流或者使用`condition_variable`的通知事件）。
+
+另一种做法，通常更优的解决方案是通过把线程放到创建（或者激活）点的作用域外部来控制它的生命周期。例如：
+
+```cpp
+void heartbeat();
+
+gsl::joining_thread t(heartbeat);             // heartbeat要“永远”执行
+```
+
+这个心跳的执行时间与程序的执行时间一样（除非出现错误，硬件问题等）。
+
+有时候，我们需要把创建点从所有权点分离出来：
+
+```cpp
+void heartbeat();
+
+unique_ptr<gsl::joining_thread> tick_tock {nullptr};
+
+void use()
+{
+    // hearbeat的执行时间与tick_tock存活的时间一样长
+    tick_tock = make_unique<gsl::joining_thread>(heartbeat);
+    // ...
+}
+```
+
+##### 实施
+
+标记出`detach()`。
+
+### CP.31: 在线程间以值传递少量数据，而不是以引用或指针
+
+##### 理由
+
+拷贝少量数据比起使用一些锁机制来共享它更加容易拷贝和访问。拷贝自然地提供了唯一所有权（简化代码）并且消除了数据竞争的可能。
+
+##### 注意
+
+精确地定义“少量”是不可能的。
+
+##### 示例
+
+```cpp
+string modify1(string);
+void modify2(shared_ptr<string>);
+
+void fct(string& s)
+{
+    auto res = async(modify1, s);
+    async(modify2, &s);
+}
+```
+
+对`modify1`的调用拷贝了两次`string`值；对`modify2`的调用没有拷贝。另一方面，`modify1`的实现与我们为单线程代码所写的完全一样，而`modify2`的实现需要某种形式的锁来避免数据竞争。如果字符串是短的（例如10个字符），对`modify1`的调用会惊人地快；基本上所有开销都在`thread`的切换。如果字符串是长的（例如1,000,000个字符），拷贝它两次可能不是好主意。
+
+注意，这里的讨论与`sync`本身没有关系。它同样适用于考虑使用消息传递还是共享内存。
+
+##### 实施
+
+???

@@ -12214,7 +12214,7 @@ Pool* use()
 * CP.32: 使用`shared_ptr`在不相关的`thread`之间共享所有权
 * CP.40: 尽量避免上下文切换
 * CP.41: 尽量避免线程创建和销毁
-* CP.42: 不要无条件地调用`wait`
+* CP.42: 不要不带条件地调用`wait`
 * CP.43: 尽量减少花费在关键段中的时间
 * CP.44: 记得为你的`lock_guard`和`unique_lock`命名
 * CP.50: 与受保护的数据一起定义`mutex`。可能的话使用`synchronized_value<T>`
@@ -12611,3 +12611,171 @@ void fct(string& s)
 ##### 实施
 
 ???
+
+### CP.32: 使用`shared_ptr`在不相关的`thread`之间共享所有权
+
+##### 理由
+
+如果线程是不相关的（也就是说，不知道对方在同一个作用域，或者一个线程的生命周期在另一个线程的生命周期之内），而且它们需要共享自由存储上的内存，这块内存需要删除，`shared_ptr`（或者同等的东西）是唯一安全的方式来确保能够正确地删除。
+
+##### 示例
+
+```cpp
+???
+```
+
+##### 注意
+
+* 静态对象（例如全局对象）可以被共享，因为它不属于由某个线程负责删除它的场景。
+* 永远不需要删除的自由存储上的对象可以被共享。
+* 一个线程拥有的对象可以安全地与另一个线程共享，只要第二个线程的生命周期不会比该对象的所有者长。
+
+##### 实施
+
+???
+
+### CP.40: 尽量避免上下文切换
+
+##### 理由
+
+上下文切换是昂贵的。
+
+##### 示例
+
+```cpp
+???
+```
+
+##### 实施
+
+???
+
+### CP.41: 尽量避免线程创建和销毁
+
+##### 理由
+
+线程的创建是昂贵的。
+
+##### 示例
+
+```cpp
+void worker(Message m)
+{
+    // 处理
+}
+
+void master(istream& is)
+{
+    for (Message m; is >> m; )
+        run_list.push_back(new thread(worker, m));
+}
+```
+
+这里每个消息都会生成一个`thread`，`run_list`大概是用来在这些任务完成的时候销毁它们。
+
+相反，我们可以有一些预创建的工作线程来处理这些消息：
+
+```cpp
+Sync_queue<Message> work;
+
+void master(istream& is)
+{
+    for (Message m; is >> m; )
+        work.put(m);
+}
+
+void worker()
+{
+    for (Message m; m = work.get(); ) {
+        // 处理
+    }
+}
+
+void workers()  // 设置工作线程（明确地指定4个工作线程）
+{
+    joining_thread w1 {worker};
+    joining_thread w2 {worker};
+    joining_thread w3 {worker};
+    joining_thread w4 {worker};
+}
+```
+
+##### 注意
+
+如果你的系统有好的线程池，使用它。如果你的系统有好的消息队列，使用它。
+
+##### 实施
+
+???
+
+### CP.42: 不要不带条件地调用`wait`
+
+##### 理由
+
+不带条件地调用`wait`可能会错过唤醒，或者唤醒后只是发现没有事情做。
+
+##### 示例，不好的
+
+```cpp
+std::condition_variable cv;
+std::mutex mx;
+
+void thread1()
+{
+    while (true) {
+        // 做一些事情 ...
+        std::unique_lock<std::mutex> lock(mx);
+        cv.notify_one();    // 唤醒另一个线程
+    }
+}
+
+void thread2()
+{
+    while (true) {
+        std::unique_lock<std::mutex> lock(mx);
+        cv.wait(lock);    // 可能永远阻塞
+        // 做事情 ...
+    }
+}
+```
+
+这里，如果其它一些`thread`消费了`thread1`的通知，`thread2`会永远等待。
+
+##### 示例
+
+```cpp
+template<typename T>
+class Sync_queue {
+public:
+    void put(const T& val);
+    void put(T&& val);
+    void get(T& val);
+private:
+    mutex mtx;
+    condition_variable cond;    // 这个用来控制访问
+    list<T> q;
+};
+
+template<typename T>
+void Sync_queue<T>::put(const T& val)
+{
+    lock_guard<mutex> lck(mtx);
+    q.push_back(val);
+    cond.notify_one();
+}
+
+template<typename T>
+void Sync_queue<T>::get(T& val)
+{
+    unique_lock<mutex> lck(mtx);
+    cond.wait(lck, [this]{ return !q.empty(); });    // 避免不必要的唤醒
+    val = q.front();
+    q.pop_front();
+}
+```
+
+现在，当执行`get()`的线程唤醒后（例如，由于其它线程在它之前已经调用了`get()`），如果队列是空的，它会立即回到睡眠，等待。
+
+##### 实施
+
+标记出所有不带条件的`wait`。

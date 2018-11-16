@@ -12876,3 +12876,365 @@ class MyClass {
 ##### 实施
 
 ??? 有可能吗？
+
+## CP.par: 并行
+
+“并行”的意思是在多个数据项上（或多或少地）同时（“一起并行”）执行一个任务。
+
+并行准则概要：
+
+* ???
+* ???
+* 在适当的时候，优先使用标准库的并行算法
+* 使用专为并行设计的算法，不要使用不必要地依赖线性求值的算法
+
+## CP.mess: 消息传递
+
+标准库的设施是很低层级的，专注于使用`thread`、`mutex`、`atomic`等类型进行贴近硬件关键编程的需求。大部分人不应该在这个层级工作：它容易出错并且开发效率很低。如果可能的话，使用更高层级的设施：消息库、并行算法以及向量化。这部分聚焦于传递消息，这样的话程序员不需要做显式的同步。
+
+消息传递准则概要：
+
+* CP.60: 使用`future`从并发任务中返回值
+* CP.61: 使用`async()`生成并发任务
+* 消息队列
+* 消息库
+
+??? 是否应该有“使用X而不是`std::async`”的准则？其中X是某些使用了更好的特定线程池的东西。
+
+??? 鉴于未来（甚至是已有库中）的并行设施，`std::async`是否值得使用？如果有人想要并行化，例如`std::accumulate`（具有可交换性的额外前提），或者合并排序，本指南应该如何建议？
+
+### CP.60: 使用`future`从并发任务中返回值
+
+##### 理由
+
+`future`为异步任务保留了一般的函数调用返回语义。它没有显式的锁，并且正确（值）返回和错误（异常）返回都能简单地处理。
+
+##### 示例
+
+```cpp
+???
+```
+
+##### 注意
+
+???
+
+##### 实施
+
+???
+
+### CP.61: 使用`async()`生成并发任务
+
+##### 理由
+
+`future`为异步任务保留了一般的函数调用返回语义。它没有显式的锁，并且正确（值）返回和错误（异常）返回都能简单地处理。
+
+##### 示例
+
+```cpp
+???
+```
+
+##### 注意
+
+不幸的是，`async()`并不完美。例如，它不能保证使用线程池来减少线程的创建。事实上，大部分目前的`async()`实现都没有这样做。然而，`async()`很简单，而且逻辑上是正确的，所以直到有更好的东西出现之前，除非你真的需要为很多异步任务做优化，否则坚持使用`async()`。
+
+##### 实施
+
+???
+
+## CP.vec: 向量化
+
+向量化是用来并发地执行多个任务而不需要引入显式同步的技术。操作可以简单地并行应用到数据结构（vector、数组等）的元素上。向量化有一个令人感兴趣的属性是，它通常不需要对程序进行非局部的修改。然而，向量化最适合用于简单的数据结构和专门为启用它而设计的算法。
+
+向量化准则概要：
+
+* ???
+* ???
+
+## CP.free: 无锁编程
+
+使用`mutex`和`condition_variable`进行同步相对来说是昂贵的。而且，这会导致死锁。为了性能以及消除死锁的可能，我们有时不得不使用复杂的低层级的“无锁”设施，这些设施依赖于短暂获得的内存互斥（“原子性”）访问。无锁编程也用于实现高层级的并发机制，例如`thread`和`mutex`。
+
+无锁编程准则概要：
+
+* CP.100: 不要使用无锁编程，除非你绝对需要它
+* CP.101: 不要相信你的硬件/编译器组合
+* CP.102: 认真地学习资料
+* 如何/何时使用原子
+* 避免挨饿
+* 使用无锁的数据结构，而不是手工编写特定的无锁访问
+* CP.110: 不要为初始化编写你自己的双重检查锁
+* CP.111: 如果你真的需要双重检查锁，使用传统的模式
+* 如何/何时进行比较和交换
+
+### CP.100: 不要使用无锁编程，除非你绝对需要它
+
+##### 理由
+
+这是容易出错的，而且需要对语言特性、机器架构和数据结构有专家级的知识。
+
+##### 示例，不好的
+
+```cpp
+extern atomic<Link*> head;        // 链表的共享头部
+
+Link* nh = new Link(data, nullptr);    // 创建一个准备用于插入的链表
+Link* h = head.load();                 // 读取链表的共享头部
+
+do {
+    if (h->data <= data) break;        // 如果这样的话，插入到别的地方
+    nh->next = h;                      // 下一个元素是上一个的头部 
+} while (!head.compare_exchange_weak(h, nh));    // 把nh写入到头部或者写入到h
+```
+
+请找出缺陷。这会非常难以通过测试来发现。熟读一下ABA问题。
+
+##### 例外
+
+原子变量可以简单和安全地使用，只要你使用的是顺序一致的内存模型（`memory_order_seq_cst`），这是默认的。
+
+##### 注意
+
+高层级的并发机制，例如`thread`和`mutex`使用了无锁编程来实现。
+
+**可选方案**：使用由其它库实现的无锁数据结构。
+
+### CP.101: 不要相信你的硬件/编译器组合
+
+##### 理由
+
+由无锁编程使用的低层级硬件接口是最难实现得好的领域之一，也是出现最微妙的可移植性问题的领域之一。如果你为了性能使用无锁编程，你需要检查是否能回退。
+
+##### 注意
+
+引入重排序（静态的和动态的）使我们难以在这个层级上有效地思考（特别是如果你使用了宽松的内存模型）。经验表明，（半）正式的模型和模型检查是有用的。测试——通常去到极端的程度——是必不可少的。“不要飞得离太阳太近”。
+
+##### 实施
+
+要有强大的可重复测试规则，涵盖硬件、操作系统、编译器和库的任何更改。
+
+### CP.102: 认真地学习资料
+
+##### 理由
+
+除了原子性和一些使用标准模式，无锁编程实际上是一个只针对专家的话题。在分发无锁代码给其它人使用之前，先成为这方面的专家。
+
+##### 参考资料
+
+* Anthony Williams: C++ concurrency in action. Manning Publications.
+* Boehm, Adve, You Don't Know Jack About Shared Variables or Memory Models , Communications of the ACM, Feb 2012.
+* Boehm, "Threads Basics", HPL TR 2009-259.
+* Adve, Boehm, "Memory Models: A Case for Rethinking Parallel Languages and Hardware", Communications of the ACM, August 2010.
+* Boehm, Adve, "Foundations of the C++ Concurrency Memory Model", PLDI 08.
+* Mark Batty, Scott Owens, Susmit Sarkar, Peter Sewell, and Tjark Weber, "Mathematizing C++ Concurrency", POPL 2011.
+* Damian Dechev, Peter Pirkelbauer, and Bjarne Stroustrup: Understanding and Effectively Preventing the ABA Problem in Descriptor-based Lock-free Designs. 13th IEEE Computer Society ISORC 2010 Symposium. May 2010.
+* Damian Dechev and Bjarne Stroustrup: Scalable Non-blocking Concurrent Objects for Mission Critical Code. ACM OOPSLA'09. October 2009
+* Damian Dechev, Peter Pirkelbauer, Nicolas Rouquette, and Bjarne Stroustrup: Semantically Enhanced Containers for Concurrent Real-Time Systems. Proc. 16th Annual IEEE International Conference and Workshop on the Engineering of Computer Based Systems (IEEE ECBS). April 2009.
+
+### CP.110: 不要为初始化编写你自己的双重检查锁
+
+##### 理由
+
+自从C++11开始，静态局部变量现在会以线程安全的的方式来初始化。与RAII模式结合之后，静态局部变量可以代替你自己为初始化而写的双重检查锁的需要。`std::call_once`也可以达到相同的目的。应使用C++11的静态局部变量或者`std::call_once`，而不是为初始化而编写你自己的双重检查锁。
+
+##### 示例
+
+使用`std::call_once`的例子。
+
+```cpp
+void f()
+{
+    static std::once_flag my_once_flag;
+    std::call_once(my_once_flag, []()
+    {
+        // 只做一次
+    });
+    // ...
+}
+```
+
+使用C++11线程安全的静态局部变量的例子。
+
+```cpp
+ void f()
+{
+    // 假设编译器与C++11兼容
+    static My_class my_object; // 构造函数只会调用一次
+    // ...
+}
+
+class My_class
+{
+public:
+    My_class()
+    {
+        // 只做一次
+    }
+};
+```
+
+##### 实施
+
+??? 有可能检查出这种用法吗？
+
+### CP.111: 如果你真的需要双重检查锁，使用传统的模式
+
+##### 理由
+
+双重检查锁容易变得混乱。如果你真的需要编写你自己的双重检查锁，而不理会“CP.110: 不要为初始化编写你自己的双重检查锁”和“CP.100: 不要使用无锁编程，除非你绝对需要它”，那么用传统的模式来编写它。
+
+当一个非线程安全的行为既困难又罕见，并且有一个快速的线程安全测试方法可以用来确保这个行为是不需要的，但不能用来确保相反的情况，这时使用双重检查锁模式不会与“CP.110: 不要为初始化编写你自己的双重检查锁”冲突。
+
+##### 示例，不好的
+
+用`volatile`不会使第一次检查变得线程安全，参阅“CP.200: 只在与非C++内存交互时使用`volatile`”。
+
+```cpp
+mutex action_mutex;
+volatile bool action_needed;
+
+if (action_needed) {
+    std::lock_guard<std::mutex> lock(action_mutex);
+    if (action_needed) {
+        take_action();
+        action_needed = false;
+    }
+}
+```
+
+##### 示例，好的
+
+```cpp
+mutex action_mutex;
+atomic<bool> action_needed;
+
+if (action_needed) {
+    std::lock_guard<std::mutex> lock(action_mutex);
+    if (action_needed) {
+        take_action();
+        action_needed = false;
+    }
+}
+```
+
+当获取加载比顺序一致加载更高效的时候，微调内存顺序可能有好处。
+
+```cpp
+mutex action_mutex;
+atomic<bool> action_needed;
+
+if (action_needed.load(memory_order_acquire)) {
+    lock_guard<std::mutex> lock(action_mutex);
+    if (action_needed.load(memory_order_relaxed)) {
+        take_action();
+        action_needed.store(false, memory_order_release);
+    }
+}
+```
+
+##### 实施
+
+??? 有可能检查出这种用法吗？
+
+## CP.etc: 其它并发准则
+
+这些准则不能简单地归类：
+
+* CP.200: 只在与非C++内存交互时使用`volatile`
+* CP.201: ??? 信号
+
+### CP.200: 只在与非C++内存交互时使用`volatile`
+
+##### 理由
+
+`volatile`用来指代与“非C++”代码共享的对象，或者不遵循C++内存模型的硬件。
+
+##### 示例
+
+```cpp
+const volatile long clock;
+```
+
+这里描述了一个通过时钟回路来更新的寄存器常量。`clock`为`volatile`，因为它的值会改变，无需使用它的C++程序执行任何操作。例如，读取`clock`两次通常会得到两个不同的值，所以优化器最好不要优化掉这个代码中的第二次读取：
+
+```cpp
+long t1 = clock;
+// ... 这里没有使用时钟 ...
+long t2 = clock;
+```
+
+`clock`为`const`，因为程序不应该试图写入`clock`。
+
+##### 注意
+
+除非你要编写最底层的代码来直接操作硬件，否则应把`volatile`看成是深奥的特性，最好避免使用。
+
+##### 示例
+
+通常C++代码会接收到由其它地方（硬件或其它语言）拥有的`volatile`内存：
+
+```cpp
+int volatile* vi = get_hardware_memory_location();
+    // 注意：这里我们得到了指向其它地方的内存
+    // volatile意味着“要额外小心地对待它”
+```
+
+有时候C++代码会分配`volatile`内存，并且有意地转成指针与“其它地方”（硬件或其它语言）共享：
+
+```cpp
+static volatile long vl;
+please_use_this(&vl);   // 把引用转成指针，给“其它地方”（非C++）
+```
+
+##### 示例；不好的
+
+`volatile`局部变量几乎总是错误的——如果它们是临时的，如何与其它语言或硬件共享？出于相同原因，这几乎同样适用于成员变量。
+
+```cpp
+void f() {
+    volatile int i = 0; // 不好的，volatile局部变量
+    // 其它
+}
+
+class My_type {
+    volatile int i = 0; // 有问题的，volatile成员变量
+    // 其它
+};
+```
+
+##### 注意
+
+在C++中，不像一些其它语言，`volatile`“对同步没有没有作用”。
+
+##### 实施
+
+* 标记出`volatile T`局部或成员变量；几乎可以确定你要用`atomic<T>`来代替。
+* ???
+
+### CP.201：??? 信号
+
+??? UNIX信号处理 ???。也许值得提醒一下，异步信号安全性有多么少，以及如何与信号处理器通信（最好的做法可能是“根本不做”）。
+
+# E: 错误处理
+
+错误处理包括：
+
+* 检测错误
+* 把错误的相关信息传递给某些处理代码
+* 使程序维持在有效的状态
+* 避免资源泄露
+
+从所有错误中恢复是不可能的。如果不可能从某个错误中恢复，以定义良好的方式快速“脱离”是很重要的。错误处理的策略必须简单，否则它会变成更严重的错误的来源。未经测试以及很少执行的错误处理代码本身也是许多缺陷的来源。
+
+这些准则旨在帮助避免几种类型的错误：
+
+* 类型违规（例如，误用`union`和转型）
+* 资源泄露（包括内存泄露）
+* 边界错误
+* 生命周期错误（例如，在对象被删除之后还访问它）
+* 复杂度错误（过于复杂地表达想法造成的逻辑错误）
+* 接口错误（例如，意外的值传入接口）
+
+错误处理准则概要：
+

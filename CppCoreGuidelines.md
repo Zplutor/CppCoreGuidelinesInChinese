@@ -14418,7 +14418,7 @@ constexpr double z = f(2);  // 除非f(2)可以在编译时求值，否则会出
 * T.10: 为所有模板参数指定概念
 * T.11: 尽可能使用标准概念
 * T.12: 优先为局部变量使用概念名称而不是`auto`
-* T.13: 优先为简单、单类型参数的概念使用简化符号
+* T.13: 优先为简单的、单类型参数的概念使用简化符号
 ???
 
 概念定义准则概要：
@@ -14766,3 +14766,255 @@ Iter find(Iter b, Iter e, Val v)
 ##### 实施
 
 标记出不带概念的模板类型参数。
+
+### T.11: 尽可能使用标准概念
+
+##### 理由
+
+“标准”概念（像GSL和[Ranges TS](http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2016/n4569.pdf)提供的，以及ISO标准自身有望可以很快提供的），节省了我们发明我们自己的概念的工作，比起我们在匆忙中思考的更加深思熟虑，并且提高了互操作性。
+
+##### 注意
+
+除非你正在创建一个新的泛型库，大部分你需要的概念已经由标准库定义好了。
+
+##### 示例（使用TS概念）
+
+```cpp
+template<typename T>
+    // 不要定义这个：Sortable在GSL中
+concept Ordered_container = Sequence<T> && Random_access<Iterator<T>> && Ordered<Value_type<T>>;
+
+void sort(Ordered_container& s);
+```
+
+`Ordered_container`似乎完全合理，但它与GSL（以及Range TS）中的`Sortable`概念非常相似。它是更好的吗？它是正确的吗？它准确地反映了标准对`sort`的要求吗？更好且更简单的是使用`Sortable`：
+
+```cpp
+void sort(Sortable& s);   // 好多了
+```
+
+##### 注意
+
+随着包含概念的ISO标准临近，“标准”概念的集合在不断发展。
+
+##### 注意
+
+设计有用的概念是一个挑战。
+
+#### 实施
+
+困难的。
+
+* 查找未被约束的参数，使用了“非寻常”/非标准概念的模板，使用了没有规律的“自制”概念的模板。
+* 开发一个发现概念的工具（例如，参考[一个早期的实验](http://www.stroustrup.com/sle2010_webversion.pdf)）。
+
+### T.12: 优先为局部变量使用概念名称而不是`auto`
+
+##### 理由
+
+`auto`是最弱的概念。概念名称比`auto`涵盖了更多的含义。
+
+##### 示例（使用TS概念）
+
+```cpp
+vector<string> v;
+auto& x = v.front();     // 不好的
+String& s = v.begin();   // 好的（String是一个GSL概念）
+```
+
+##### 实施
+
+* ???
+
+### T.13: 优先为简单的、单类型参数的概念使用简化符号
+
+##### 理由
+
+可读性。直接表达想法。
+
+##### 示例（使用TS概念）
+
+表示“`T`是`Sortable`”：
+
+```cpp
+template<typename T>         // 正确的，但啰嗦：“参数的类型为T，T是可排序类型的名称”
+//    requires Sortable<T>   
+void sort(T&);               
+
+template<Sortable T>         // 好多了（假设支持概念）：“参数的类型为T，T是可排序的”
+void sort(T&);               
+
+void sort(Sortable&);        // 最好的（假设支持概念）：“参数是可排序的”
+```
+
+越短的版本能更好地符合我们说话的方式。注意很多模板不需要使用`template`关键词。
+
+##### 注意
+
+“概念”定义于ISO技术规范：[concepts](http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2015/n4553.pdf)。一组标准库概念的草案可以在其它ISO TS中找到：[ranges](http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2016/n4569.pdf)。概念在GCC 6.1及之后的版本中支持。所以，我们在示例中用注释来使用概念；即我们只以形式化的注释来使用它们。如果你使用了支持概念的编译器（例如GCC 6.1或之后的版本），你可以去掉`//`。
+
+##### 实施
+
+* 在人们从`<typename T>`和`<class T>`表示法转换期间，短期内是不可行的。
+* 在这之后，标记出第一个引入`typename`的声明，然后用简单的、单类型参数的概念约束它。
+
+## T.concepts.def: 概念定义准则
+
+定义好的准则是重要的。概念用来表示应用程序领域中基础的概念（由此得名“概念”）。同样，把一组语法约束凑到一起，用在单个类或算法的参数上，这不是概念设计的目的，也不会得到该机制带来的全部好处。
+
+显然，对于可以使用实现（例如GCC 6.1或之后的版本）的代码来说，定义概念会最有用，但定义概念本身就是一个有用的设计技术，有助于捕获概念错误和理清实现的概念。
+
+### T.20: 避免无有意义语义的“概念”
+
+##### 理由
+
+概念用来表达语义概念，例如“一个数字”，元素的“一个范围”，以及“完全有序”。简单的约束，例如“有一个`+`操作符”和“有一个`>`操作符”不能在孤立的情况下有意义地指定，而只应该作为有意义的概念的建筑砖块来使用，而不是用在用户代码中。
+
+##### 示例，不好的（使用TS概念）
+
+```cpp
+template<typename T>
+concept Addable = has_plus<T>;    // 不好的：不充分
+
+template<Addable N> auto algo(const N& a, const N& b) // 使用两个数字
+{
+    // ...
+    return a + b;
+}
+
+int x = 7;
+int y = 9;
+auto z = algo(x, y);   // z = 16
+
+string xx = "7";
+string yy = "9";
+auto zz = algo(xx, yy);   // zz = "79"
+```
+
+也许字符串的连接是预期的。不过更可能的是，这是一个意外。同样的，定义减法会有有明显不同的可接受类型集合。这个`Addable`违反了加法是可交换的数学规则：`a+b == b+a`。
+
+##### 注意
+
+指定有意义语义的能力是真正概念的定义特征，而不是语法约束。
+
+##### 示例（使用TS概念）
+
+```cpp
+template<typename T>
+// Number的+、-、*和/操作符认为是遵循通常的数学规则
+concept Number = has_plus<T>
+                    && has_minus<T>
+                    && has_multiply<T>
+                    && has_divide<T>;
+
+template<Number N> auto algo(const N& a, const N& b)
+{
+    // ...
+    return a + b;
+}
+
+int x = 7;
+int y = 9;
+auto z = algo(x, y);   // z = 16
+
+string xx = "7";
+string yy = "9";
+auto zz = algo(xx, yy);   // 错误：字符串不是数字
+```
+
+##### 注意
+
+比起只有单个操作的概念，具有多个操作的概念有更低的机会意外地匹配错类型。
+
+##### 实施
+
+* 标记出用在定义其它`concepts`之外的单个操作的`concepts`。
+* 标记出用来模拟单操作`concepts`的`enable_if`。
+
+### T.21: 为概念提供一组完整的操作
+
+##### 理由
+
+容易理解。提高互操作性。有助于实现者和维护者。
+
+##### 注意
+
+这是“概念必须有语义意义”这个一般准则的特定变体。
+
+##### 示例，不好的（使用TS概念）
+
+```cpp
+template<typename T> concept Subtractable = requires(T a, T, b) { a-b; };
+```
+
+这没有语义意义。你至少需要`+`来让`-`有意义和有用。
+
+完整集合的示例是：
+
+* `Arithmetic`：`+`，`-`，`*`，`/`，`+=`，`-=`，`*=`，`/=`
+* `Comparable`：`<`，`>`，`<=`，`>=`，`==`，`!=`
+
+##### 注意
+
+无论我们是否使用概念的直接语言支持，这个准则都适用。这是一个通用的设计准则，甚至适用于非模板：
+
+```cpp
+class Minimal {
+    // ...
+};
+
+bool operator==(const Minimal&, const Minimal&);
+bool operator<(const Minimal&, const Minimal&);
+
+Minimal operator+(const Minimal&, const Minimal&);
+// 没有其它操作符
+
+void f(const Minimal& x, const Minimal& y)
+{
+    if (!(x == y)) { /* ... */ }    // 没问题
+    if (x != y) { /* ... */ }       // 惊讶！出错
+
+    while (!(x < y)) { /* ... */ }  // 没问题
+    while (x >= y) { /* ... */ }    // 惊讶！出错
+
+    x = x + y;          // 没问题
+    x += y;             // 惊讶！出错
+}
+```
+
+这是极小值，但对用户来说是意料之外且有约束的。它甚至可能很低效。
+
+该准则支持了这个观点：概念应该反映一组（数学上）符合逻辑的操作。
+
+##### 示例
+
+```cpp
+class Convenient {
+    // ...
+};
+
+bool operator==(const Convenient&, const Convenient&);
+bool operator<(const Convenient&, const Convenient&);
+// ... 其它比较操作 ...
+
+Minimal operator+(const Convenient&, const Convenient&);
+// ... 其它算术操作 ...
+
+void f(const Convenient& x, const Convenient& y)
+{
+    if (!(x == y)) { /* ... */ }    // 没问题
+    if (x != y) { /* ... */ }       // 没问题
+
+    while (!(x < y)) { /* ... */ }  // 没问题
+    while (x >= y) { /* ... */ }    // 没问题
+
+    x = x + y;     // 没问题
+    x += y;        // 没问题
+}
+```
+
+定义所有操作符可能令人讨厌，但是并不困难。理想情况下，该准则应该由语言来支持，通过提供默认的比较操作符。
+
+##### 实施
+
+* 标记出支持操作符集合的“怪异”子集的类型，例如，支持`==`但不支持`!=`，或者支持`+`但不支持`-`。是的，`std::string`是“怪异的”，但是要改变它已经太迟了。

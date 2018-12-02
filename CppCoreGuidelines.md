@@ -15072,3 +15072,24 @@ template<typename Node> concept bool Balancer = requires(Node* p) {
 
 * 在概念定义的注释中查找单词“axiom”。
 
+### T.23: 通过添加新的使用模式，将提炼后的概念与更一般的情况区分开来
+
+##### 理由
+
+否则它们不能被编译器自动地区分开来。
+
+##### 示例（使用TS概念）
+
+```cpp
+template<typename I>
+concept bool Input_iter = requires(I iter) { ++iter; };
+
+template<typename I>
+concept bool Fwd_iter = Input_iter<I> && requires(I iter) { iter++; }
+```
+
+编译器可以基于要求的操作（在这里是后缀`++`）来确定提炼。这减少了这些类型的实现负担，因为它们不需要任何特别的声明来“挂钩进概念里”。如果两个概念有完全一样的要求，它们在逻辑上是等同的（不存在提炼）。
+
+##### 示例
+
+* 标记出与其它已经见过的概念具有完全相同要求的概念（两个都不是提炼）。为了消除它们之间的歧义，参阅T.24。

@@ -14429,7 +14429,7 @@ constexpr double z = f(2);  // 除非f(2)可以在编译时求值，否则会出
 * T.23: 通过添加新的使用模式，将提炼后的概念与更一般的情况区分开来
 * T.24: 使用标签类或者特性来区分只是语义上不同的概念
 * T.25: 避免互补的约束
-* T.26: 优先在使用模式方面定义概念，而不是简单的语法
+* T.26: 优先在使用模式方面定义概念，而不是在简单语法方面
 * T.30: 有节制地使用概念取反（`!C<T>`）来表达微小的差异
 * T.31: 有节制地使用概念分离（`C1<T> || C2<T>`）来表达选择
 * ???
@@ -15093,3 +15093,144 @@ concept bool Fwd_iter = Input_iter<I> && requires(I iter) { iter++; }
 ##### 示例
 
 * 标记出与其它已经见过的概念具有完全相同要求的概念（两个都不是提炼）。为了消除它们之间的歧义，参阅T.24。
+
+### T.24: 使用标签类或者特性来区分只是语义上不同的概念
+
+##### 理由
+
+要求相同语法但不同语义的两个概念会导致歧义，除非程序员区分了它们。
+
+##### 示例（使用TS概念）
+
+```cpp
+template<typename I>    // 提供随机访问的迭代器
+concept bool RA_iter = ...;
+
+template<typename I>    // 提供对连续数据随机访问的迭代器
+concept bool Contiguous_iter =
+    RA_iter<I> && is_contiguous<I>::value;  // 使用is_contiguous特性
+```
+
+（在库中的）程序员必须恰当地定义`is_contiguous`（一个特性）。
+
+把标签类包装进概念中可以更简单地表达这个想法：
+
+```cpp
+template<typename I> concept Contiguous = is_contiguous<I>::value;
+
+template<typename I>
+concept bool Contiguous_iter = RA_iter<I> && Contiguous<I>;
+```
+
+（在库中的）程序员必须恰当地定义`is_contiguous`（一个特性）。
+
+##### 注意
+
+特性可以是特性类或者类型特性。这些可以是用户定义的或者是标准库中的。优先使用标准库中的。
+
+##### 实施
+
+* 编译器会标记出使用了相同概念的歧义。
+* 标记出相同概念的定义。
+
+### T.25: 避免互补的约束
+
+##### 理由
+
+清晰性。可维护性。用否定来表示的具有互补要求的函数是脆弱的。
+
+##### 示例（使用TS概念）
+
+最初，人们会试图定义具有互补要求的函数：
+
+```cpp
+template<typename T>
+    requires !C<T>    // 不好的
+void f();
+
+template<typename T>
+    requires C<T>
+void f();
+```
+
+这样的话好多了：
+
+```cpp
+template<typename T>   // 通用模板
+    void f();
+
+template<typename T>   // 通过概念进行特化
+    requires C<T>
+void f();
+```
+
+只有当`C<T>`不满足的时候，编译器才会选择无约束的模板。如果你不想要（或者不能）定义`f()`的无约束版本，那么删除它。
+
+```cpp
+template<typename T>
+void f() = delete;
+```
+
+编译器会选择这个重载，并发出适当的错误。
+
+##### 注意
+
+互补约束不幸地在`enable_if`代码中很常见：
+
+```cpp
+template<typename T>
+enable_if<!C<T>, void>   // 不好的
+f();
+
+template<typename T>
+enable_if<C<T>, void>
+f();
+```
+
+##### 注意
+
+在一个要求上的互补要求有时候（错误地）认为是可管理的。然而，对于两个或者更多要求，需要定义的数量会成指数地增长（2，4，9，16）：
+
+```cpp
+C1<T> && C2<T>
+!C1<T> && C2<T>
+C1<T> && !C2<T>
+!C1<T> && !C2<T>
+```
+
+现在出错的几率也成倍地增加了。
+
+##### 实施
+
+* 标记出带有`C<T>`和`!C<T>`约束的函数。
+
+### T.26: 优先在使用模式方面定义概念，而不是在简单语法方面
+
+##### 理由
+
+这样的定义更可读，而且直接对应了用户必须写的事物。转换被纳入考虑。你不需要记住所有类型特性的名称。
+
+##### 示例（使用TS概念）
+
+你可能会试图定义一个像这样的`Equality`概念：
+
+```cpp
+template<typename T> concept Equality = has_equal<T> && has_not_equal<T>;
+```
+
+显然，使用标准的`EqualityComparable`会更好更简单，但是——只是作为例子——要是你不得不定义这样的概念，应该这样：
+
+```cpp
+template<typename T> concept Equality = requires(T a, T b) {
+    bool == { a == b }
+    bool == { a != b }
+    // axiom { !(a == b) == (a != b) }
+    // axiom { a = b; => a == b }  // =>的意思是“隐含”
+}
+```
+
+而不是定义两个无意义的概念`has_equal`和`has_not_equal`，仅仅作为`Equality`定义中的两个辅助概念。所谓“无意义”，我们的意思是我们不能单独地指定`has_equal`的语义。
+
+##### 实施
+
+???

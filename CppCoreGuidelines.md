@@ -15330,3 +15330,156 @@ void sort(S& s)  // 对序列s排序
 ##### 实施
 
 ???
+
+### T.42: 使用模板别名来简化符号以及隐藏实现细节
+
+##### 理由
+
+提高可读性。隐藏实现。注意模板别名代替了很多特性的使用来计算类型。它们也可以用来包装特性。
+
+##### 示例
+
+```cpp
+template<typename T, size_t N>
+class Matrix {
+    // ...
+    using Iterator = typename std::vector<T>::iterator;
+    // ...
+};
+```
+
+这样做让`Matrix`的用户不必知道它的元素是保存在`vector`中的，同时也让用户不必重复地输入`typename std::vector<T>::`。
+
+##### 示例
+
+```cpp
+template<typename T>
+void user(T& c)
+{
+    // ...
+    typename container_traits<T>::value_type x; // 不好的，啰嗦
+    // ...
+}
+
+template<typename T>
+using Value_type = typename container_traits<T>::value_type;
+```
+
+这样做让`Value_type`的用户的不必知道用来实现`value_type`的技术。
+
+```cpp
+template<typename T>
+void user2(T& c)
+{
+    // ...
+    Value_type<T> x;
+    // ...
+}
+```
+
+##### 注意
+
+一个简单、常见的用法可以表达成：“包装特性！”
+
+##### 实施
+
+* 标记出用于`using`声明之外，用作消除歧义目的的`typename`。
+* ???
+
+### T.43: 优先使用`using`而不是`typedef`来定义别名
+
+##### 理由
+
+提高可读性：使用`using`，新名称会在第一个位置出现，而不是嵌进声明中的某个地方。通用性：`using`可以用于模板别名，而`typedef`不能简单地模板化。一致性：`using`在语法上与`auto`相似。
+
+##### 示例
+
+```cpp
+typedef int (*PFI)(int);   // 没问题，但是费解
+
+using PFI2 = int (*)(int);   // 没问题，更好的
+
+template<typename T>
+typedef int (*PFT)(T);      // 错误
+
+template<typename T>
+using PFT2 = int (*)(T);   // 没问题
+```
+
+##### 实施
+
+* 标记出`typedef`的使用。这会给出很多“提示” :-(
+
+### T.44: 使用函数模板来推导类模板的参数类型（可行的情况下）
+
+##### 理由
+
+显式地写出模板参数类型是令人厌烦的，且不必要地啰嗦。
+
+##### 示例
+
+```cpp
+tuple<int, string, double> t1 = {1, "Hamlet", 3.14};   // 显式类型
+auto t2 = make_tuple(1, "Ophelia"s, 3.14);         // 好多了；推导出类型
+```
+
+注意，使用`s`后缀确保这个字符串是`std::string`，而不是C风格字符串。
+
+##### 注意
+
+既然你可以容易地写出`make_T`函数，那么编译器也可以。因此，`make_T`函数在将来可能会变成多余的。
+
+##### 例外
+
+有时候，没有好的方式可以推导出模板参数，而且有时候你想要显式地指定参数：
+
+```cpp
+vector<double> v = { 1, 2, 3, 7.9, 15.99 };
+list<Record*> lst;
+```
+
+##### 注意
+
+注意，通过允许模板参数在构造函数的参数中直接推导出来，C++17会让这个准则变得多余：[构造函数的模板参数推导（修订版本3）](http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2016/p0091r1.html)。例如：
+
+```cpp
+tuple t1 = {1, "Hamlet"s, 3.14}; // 推导出：tuple<int, string, double>
+```
+
+##### 实施
+
+当显式指定的类型准确地匹配参数的类型时，标记出来。
+
+### T.46: 要求模板参数至少为`Regular`或`SemiRegular`
+
+##### 理由
+
+可读性。避免意外和错误。大多数用法都支持。
+
+##### 示例
+
+```cpp
+class X {
+        // ...
+public:
+    explicit X(int);
+    X(const X&);            // 拷贝
+    X operator=(const X&);
+    X(X&&) noexcept;                 // 移动
+    X& operator=(X&&) noexcept;
+    ~X();
+    // ... 没有更多构造函数 ...
+};
+
+X x {1};    // 没问题
+X y = x;      // 没问题
+std::vector<X> v(10); // 错误：没有默认构造函数
+```
+
+##### 注意
+
+半常规要求可以默认构造。
+
+##### 实施
+
+* 标记出最低要求都不符合`SemiRegular`的类型。

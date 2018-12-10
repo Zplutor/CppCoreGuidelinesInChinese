@@ -14451,9 +14451,9 @@ constexpr double z = f(2);  // 除非f(2)可以在编译时求值，否则会出
 * T.60: 尽量减少模板的上下文依赖
 * T.61: 不要过度参数化成员（SCARY）
 * T.62: 把无依赖的类模板成员放在非模板的基类中
-* T.64: 使用特化来提供类模板的可选实现
-* T.65: 使用标签派发来提供函数的可选实现
-* T.67: 使用特化来为不规则的类型提供可选实现
+* T.64: 使用特化来提供类模板的其它实现
+* T.65: 使用标签派发来提供函数的其它实现
+* T.67: 使用特化来为非常规类型提供其它实现
 * T.68: 在模板中使用`{}`而不是`()`来避免歧义
 * T.69: 在模板中，不要进行无限定的非成员函数调用，除非你的意图是让它成为一个定制化点
 
@@ -15613,3 +15613,289 @@ Iter algo(Iter first, Iter last) {
 
 ??? 棘手的
 
+### T.61: 不要过度参数化成员（SCARY）
+
+##### 理由
+
+除了特定的模板参数，不依赖于模板参数的成员不能够使用。这限制了使用，并且通常会增加了代码大小。
+
+##### 示例，不好的
+
+```cpp
+template<typename T, typename A = std::allocator{}>
+    // requires Regular<T> && Allocator<A>
+class List {
+public:
+    struct Link {   // 不依赖A
+        T elem;
+        T* pre;
+        T* suc;
+    };
+
+    using iterator = Link*;
+
+    iterator first() const { return head; }
+
+    // ...
+private:
+    Link* head;
+};
+
+List<int> lst1;
+List<int, My_allocator> lst2;
+
+???
+```
+
+这看起来没什么问题，但是 ???
+
+```cpp
+template<typename T>
+struct Link {
+    T elem;
+    T* pre;
+    T* suc;
+};
+
+template<typename T, typename A = std::allocator{}>
+    // requires Regular<T> && Allocator<A>
+class List2 {
+public:
+    using iterator = Link<T>*;
+
+    iterator first() const { return head; }
+
+    // ...
+private:
+    Link* head;
+};
+
+List<int> lst1;
+List<int, My_allocator> lst2;
+
+???
+```
+
+##### 实施
+
+* 标记出不依赖于每个模板参数的成员类型。
+* 标记出不依赖于每个模板参数的成员函数。
+
+### T.62: 把无依赖的类模板成员放在非模板的基类中
+
+##### 理由
+
+允许基类成员在不指定模板参数以及不进行模板实例化的情况下使用。
+
+##### 示例
+
+```cpp
+template<typename T>
+class Foo {
+public:
+    enum { v1, v2 };
+    // ...
+};
+```
+
+???
+
+```cpp
+struct Foo_base {
+    enum { v1, v2 };
+    // ...
+};
+
+template<typename T>
+class Foo : public Foo_base {
+public:
+    // ...
+};
+```
+
+##### 注意
+
+这个准则更一般的版本是“如果模板类的成员只依赖M个模板参数中的N个，那么把它放在只有N个参数的基类中”。对于N == 1，我们可以选择在类作用域的附近定义一个基类，就像T.61中做的那样。
+
+??? 常量怎么办？类的静态成员呢？
+
+##### 实施
+
+* 标记出???
+
+### T.64: 使用特化来提供类模板的其它实现
+
+##### 理由
+
+模板定义了通用的接口。特化特供了强大的机制来提供接口的其它实现。
+
+##### 示例
+
+```cpp
+??? string specialization (==)
+
+??? representation specialization ?
+```
+
+##### 注意
+
+???
+
+##### 实施
+
+???
+
+### T.65: 使用标签派发来提供函数的其它实现
+
+##### 理由
+
+* 模板定义了通用的接口。
+* 标签派发让我们可以基于参数类型的特定属性来选择实现。
+* 性能。
+
+##### 示例
+
+这是`std::copy`的简化版本（忽略了非连续序列）
+
+```cpp
+struct pod_tag {};
+struct non_pod_tag {};
+
+template<class T> struct copy_trait { using tag = non_pod_tag; };   // T不是“普通的旧式数据”
+
+template<> struct copy_trait<int> { using tag = pod_tag; };         // int是“普通的旧式数据”
+
+template<class Iter>
+Out copy_helper(Iter first, Iter last, Iter out, pod_tag)
+{
+    // 使用memmove
+}
+
+template<class Iter>
+Out copy_helper(Iter first, Iter last, Iter out, non_pod_tag)
+{
+    // 使用循环来调用拷贝构造函数
+}
+
+template<class Itert>
+Out copy(Iter first, Iter last, Iter out)
+{
+    return copy_helper(first, last, out, typename copy_trait<Iter>::tag{});
+}
+
+void use(vector<int>& vi, vector<int>& vi2, vector<string>& vs, vector<string>& vs2)
+{
+    copy(vi.begin(), vi.end(), vi2.begin()); // 使用memmove
+    copy(vs.begin(), vs.end(), vs2.begin()); // 使用循环来调用拷贝构造函数
+}
+```
+
+这是通用且强大的技术来进行编译时算法选择。
+
+##### 注意
+
+当`concept`变得广泛可用时，这些选择可以直接区分开来：
+
+```cpp
+template<class Iter>
+    requires Pod<Value_type<iter>>
+Out copy_helper(In, first, In last, Out out)
+{
+    // 使用memmove
+}
+
+template<class Iter>
+Out copy_helper(In, first, In last, Out out)
+{
+    // 使用循环来调用拷贝构造函数
+}
+```
+
+##### 实施
+
+???
+
+### T.67: 使用特化来为非常规类型提供其它实现
+
+##### 理由
+
+???
+
+##### 示例
+
+```cpp
+???
+```
+
+##### 实施
+
+???
+
+### T.68: 在模板中使用`{}`而不是`()`来避免歧义
+
+##### 理由
+
+`()`容易受到语法歧义的影响。
+
+##### 示例
+
+```cpp
+template<typename T, typename U>
+void f(T t, U u)
+{
+    T v1(x);    // v1是函数还是变量？
+    T v2 {x};   // 变量
+    auto x = T(u);  // 构造还是转型？
+}
+
+f(1, "asdf"); // 不好的：从const char*转型到int
+```
+
+##### 实施
+
+* 标记出`()`初始化
+* 标记出函数风格的转型
+
+### T.69: 在模板中，不要进行无限定的非成员函数调用，除非你的意图是让它成为一个定制化点
+
+##### 理由
+
+* 只提供需要的灵活性。
+* 避免受到意外的环境因素改变的影响。
+
+##### 示例
+
+有三种主要的方式来让调用代码定制一个模板。
+
+```cpp
+template<class T>
+    // 调用成员函数
+void test1(T t)
+{
+    t.f();    // 需要T提供f()
+}
+
+template<class T>
+void test2(T t)
+    // 无限定地调用非成员函数
+{
+    f(t);  // 需要f(/*T*/)在调用者的作用域或者在T的名称空间中可用
+}
+
+template<class T>
+void test3(T t)
+    // 调用一个“特性”
+{
+    test_traits<T>::f(t); // 需要定制test_traits<>来得到非默认的函数/类型
+}
+```
+
+特性通常是一个计算类型的类型别名，一个计算值的`constexpr`函数，或者一个基于用户类型特化的传统特性模板。
+
+##### 注意
+
+如果你想要用依赖于模板类型参数的值`t`来调用你自己的辅助函数`helper(t)`，把它放在`::detail`名称空间中，并且限定其调用，如`detail::helper(t);`。无限定的调用会成为一个定制点，在`t`类型所在的名称空间中，任何`helper`函数都都可以被调用；这会导致一些问题，比如“无意中调用了无约束的函数模板”。
+
+##### 实施
+
+* 在模板中，标记出对非成员函数的无限定调用，该函数传递了模板所依赖的类型变量，同时在模板的名称空间中存在同名的非成员函数。

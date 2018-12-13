@@ -15899,3 +15899,190 @@ void test3(T t)
 ##### 实施
 
 * 在模板中，标记出对非成员函数的无限定调用，该函数传递了模板所依赖的类型变量，同时在模板的名称空间中存在同名的非成员函数。
+
+## T.temp-hier: 模板和层次结构准则
+
+模板是C++支持泛型编程的支柱，而类层次结构是支持面向对象编程的支柱。这两种语言机制可以有效地结合使用，但是一些设计陷阱必须要避免。
+
+### T.80: 不要天真地模板化类层次结构
+
+##### 理由
+
+模板化有很多函数，特别是很多虚拟函数的类层次结构，会导致代码膨胀。
+
+##### 示例，不好的
+
+```cpp
+template<typename T>
+struct Container {         // 一个接口
+    virtual T* get(int i);
+    virtual T* first();
+    virtual T* next();
+    virtual void sort();
+};
+
+template<typename T>
+class Vector : public Container<T> {
+public:
+    // ...
+};
+
+vector<int> vi;
+vector<string> vs;
+```
+
+把`sort`定义成容器的成员函数可能是愚蠢的主意，但这并不是前所未闻的，并且这是一个关于不要做什么的好例子。
+
+对于这个例子，编译器不知道`vector<int>::sort()`是否被调用，因此它必须为它生成代码。`vector<string>::sort()`也是类似。除非这两个函数被调用了，否则就是代码膨胀。想像一下，在一个类层次结构中，具有数十个成员函数以及数十个有许多实例的派生类，这种情况会发生什么事情。
+
+##### 注意
+
+在很多情况下，你不必通过模板化基类的方式来提供稳定的接口；参阅“稳定的基类”以及“00和GP”。
+
+##### 实施
+
+* 标记出依赖于模板参数的虚拟函数。??? 误报
+
+### T.81: 不要混合层次结构和数组
+
+##### 理由
+
+派生类的数组可以隐式地“衰变”成基类的指针，这可能会导致灾难性的后果。
+
+##### 示例
+
+假设`Apple`和`Pear`是两种`Fruit`。
+
+```cpp
+void maul(Fruit* p)
+{
+    *p = Pear{};     // 把一个Pear放进 *p
+    p[1] = Pear{};   // 把一个Pear放进p[1]
+}
+
+Apple aa [] = { an_apple, another_apple };   // aa包含了Apple（显然的！）
+
+maul(aa);
+Apple& a0 = &aa[0];   // 是一个Pear吗？
+Apple& a1 = &aa[1];   // 是一个Pear吗？
+```
+
+`aa[0]`很可能是一个`Pear`（没有使用转型！）。如果`sizeof(Apple) != sizeof(Pear)`，对`aa[1]`的访问不会对齐数组中对象的正确开始地址。我们会遇到类型违规以及可能（几乎可以肯定）会出现内存损坏。永远不要写出这样的代码。
+
+注意`maul()`违反了“`T*`应该指向一个单独对象”的准则。
+
+**替代方案**：使用正确的（模板化的）容器：
+
+```cpp
+void maul2(Fruit* p)
+{
+    *p = Pear{};   // 把一个Pear放进 *p
+}
+
+vector<Apple> va = { an_apple, another_apple };   // va包含了Apple（显然的！）
+
+maul2(va);       // 错误：不能把vector<Apple>转换成Fruit*
+maul2(&va[0]);   // 你自找的
+
+Apple& a0 = &va[0];   // 是一个Pear吗？
+```
+
+注意`maul2()`中的赋值违反了“不要发生对象切割”的准则。
+
+##### 实施
+
+* 检测出这种可怕的情况！
+
+### T.82: 当不需要虚函数时，使层次结构线性化
+
+##### 理由
+
+???
+
+##### 示例
+
+```cpp
+???
+```
+
+##### 实施
+
+???
+
+### T.83: 不要把成员函数模板声明为虚拟的
+
+##### 理由
+
+C++不支持这样做。如果真的这样做，在链接之前虚拟函数表都不能生成。通常，实现必须处理动态链接。
+
+##### 示例，不要这样做
+
+```cpp
+class Shape {
+    // ...
+    template<class T>
+    virtual bool intersect(T* p);   // 错误：模板不能是虚拟的
+};
+```
+
+##### 注意
+
+我们需要这个准则，因为人们一直在问这个问题。
+
+##### 替代方案
+
+双重派发，访问者，计算出调用哪个函数。
+
+##### 实施
+
+编译器处理了。
+
+### T.84: 使用非模板的核心实现来提供一个ABI稳定的接口
+
+##### 理由
+
+提高代码的稳定性。避免代码膨胀。
+
+##### 示例
+
+这可以是一个基类：
+
+```cpp
+struct Link_base {   // 稳定的
+    Link_base* suc;
+    Link_base* pre;
+};
+
+template<typename T>   // 模板化的包装来增加类型安全性
+struct Link : Link_base {
+    T val;
+};
+
+struct List_base {
+    Link_base* first;   // 第一个元素（如果有的话）
+    int sz;             // 元素的数量
+    void add_front(Link_base* p);
+    // ...
+};
+
+template<typename T>
+class List : List_base {
+public:
+    void put_front(const T& e) { add_front(new Link<T>{e}); }   // 隐式转型成Link_base
+    T& front() { static_cast<Link<T>*>(first).val; }   // 显式转型回Link<T>
+    // ...
+};
+
+List<int> li;
+List<string> ls;
+```
+
+现在只有一份对`List`元素链接和断链操作的副本。`Link`和`List`类不做任何事情，只是类型操作。
+
+除了使用分离的“基础”类型，另一个常见的技术是对`void`或者`void*`进行特化，让`T`的通用模板只是与核心的`void`实现之间进行经过安全封装的转型。
+
+**替代方案**：使用pimpl实现。
+
+##### 实施
+
+???

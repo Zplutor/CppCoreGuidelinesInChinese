@@ -14481,7 +14481,7 @@ constexpr double z = f(2);  // 除非f(2)可以在编译时求值，否则会出
 * T.122: 使用模板（通常是模板别名）在编译时计算类型
 * T.123: 使用`constexpr`函数在编译时计算值
 * T.124: 优先使用标准库的TMP设施
-* T.125: 如果你需要超越标准库的TMP设施，使用现成的库
+* T.125: 如果你需要超出标准库的TMP设施，使用现成的库
 * T.??: ???
 
 其它模板准则概要：
@@ -16192,3 +16192,116 @@ enable_if
 ##### 注意
 
 如果你觉得需要在宏中隐藏你的模板元编程，你很可能走得太远了。
+
+### T.121: 主要使用模板元编程来模拟概念
+
+##### 理由
+
+在概念广泛可用之前，我们需要使用TMP来模拟它们。用于需要概念的场景是TMP最常见（和简单）的用法之一。
+
+##### 示例
+
+```cpp
+template<typename Iter>
+    /*requires*/ enable_if<random_access_iterator<Iter>, void>
+advance(Iter p, int n) { p += n; }
+
+template<typename Iter>
+    /*requires*/ enable_if<forward_iterator<Iter>, void>
+advance(Iter p, int n) { assert(n >= 0); while (n--) ++p;}
+```
+
+##### 注意
+
+这些代码使用概念的话会更简单：
+
+```cpp
+void advance(RandomAccessIterator p, int n) { p += n; }
+
+void advance(ForwardIterator p, int n) { assert(n >= 0); while (n--) ++p;}
+```
+
+##### 实施
+
+???
+
+### T.122: 使用模板（通常是模板别名）在编译时计算类型
+
+##### 理由
+
+模板元编程是在编译时生成类型的唯一直接支持的方法。
+
+##### 注意
+
+“特性”技术几乎被模板别名代替来计算类型，被`constexpr`函数代替来计算值。
+
+##### 示例
+
+```cpp
+??? 大对象/小对象优化
+```
+
+##### 实施
+
+???
+
+### T.123: 使用`constexpr`函数在编译时计算值
+
+##### 理由
+
+函数是最明确和传统的方法来表达值的计算。`constexpr`函数通常意味着比其它方法有更少的编译时开销。
+
+##### 注意
+
+“特性”技术几乎被模板别名代替来计算类型，被`constexpr`函数代替来计算值。
+
+##### 示例
+
+```cpp
+template<typename T>
+    // requires Number<T>
+constexpr T pow(T v, int n)   // 乘方/指数
+{
+    T res = 1;
+    while (n--) res *= v;
+    return res;
+}
+
+constexpr auto f7 = pow(pi, 7);
+```
+
+##### 实施
+
+* 标记出产生一个值的模板元编程。应该用`constexpr`函数来代替。
+
+### T.124: 优先使用标准库的TMP设施
+
+##### 理由
+
+在标准中定义的设施，例如`conditional`，`enable_if`和`tuple`，是可移植的，并且可以认为是已被大众了解的。
+
+##### 示例
+
+```cpp
+???
+```
+
+##### 实施
+
+???
+
+### T.125: 如果你需要超出标准库的TMP设施，使用现成的库
+
+##### 理由
+
+获取高级的TMP设施不容易，使用库让你成为（但愿有提供支持的）社区的一份子。只有在你真正需要的时候才编写你自己的“高级TMP支持”。
+
+##### 示例
+
+```cpp
+???
+```
+
+##### 实施
+
+???

@@ -14489,7 +14489,7 @@ constexpr double z = f(2);  // 除非f(2)可以在编译时求值，否则会出
 * T.140: 为所有可能重用的操作命名
 * T.141: 如果你只在一个地方需要简单的函数对象，使用未命名的lambda
 * T.142: 使用模板变量来简化符号
-* T.143: 不要无意中写出非泛型代码
+* T.143: 不要无意中写出不通用的代码
 * T.144: 不要特化函数模板
 * T.150: 使用`static_assert`来检查一个类是否符合概念
 * T.??: ???
@@ -16192,3 +16192,225 @@ enable_if
 ##### 注意
 
 如果你觉得需要在宏中隐藏你的模板元编程，你很可能走得太远了。
+
+## 其它模板准则
+
+### T.140: 为所有可能重用的操作命名
+
+##### 理由
+
+文档化，可读性，重用的可能性。
+
+##### 示例
+
+```cpp
+struct Rec {
+    string name;
+    string addr;
+    int id;         // 唯一标示符
+};
+
+bool same(const Rec& a, const Rec& b)
+{
+    return a.id == b.id;
+}
+
+vector<Rec*> find_id(const string& name);    // 查找所有匹配“name”的记录
+
+auto x = find_if(vr.begin(), vr.end(),
+    [&](Rec& r) {
+        if (r.name.size() != n.size()) return false; // 用于比较的名称在n中
+        for (int i = 0; i < r.name.size(); ++i)
+            if (tolower(r.name[i]) != tolower(n[i])) return false;
+        return true;
+    }
+);
+```
+
+这里隐藏着一个有用的函数（大小写不敏感的字符串比较），当lambda参数变得长时，一般就会出现这种情况。
+
+```cpp
+bool compare_insensitive(const string& a, const string& b)
+{
+    if (a.size() != b.size()) return false;
+    for (int i = 0; i < a.size(); ++i) if (tolower(a[i]) != tolower(b[i])) return false;
+    return true;
+}
+
+auto x = find_if(vr.begin(), vr.end(),
+    [&](Rec& r) { compare_insensitive(r.name, n); }
+);
+```
+
+或者，也许可以这样（如果你更偏向于避免对n的隐式名称绑定）：
+
+```cpp
+auto cmp_to_n = [&n](const string& a) { return compare_insensitive(a, n); };
+
+auto x = find_if(vr.begin(), vr.end(),
+    [](const Rec& r) { return cmp_to_n(r.name); }
+);
+```
+
+##### 注意
+
+不论函数，lambda还是操作符。
+
+##### 例外
+
+* lambda逻辑上只是局部使用，例如给`for_each`以及类似的控制流算法的参数。
+* lambda作为初始化器。
+
+##### 实施
+
+* （困难的）标记出相似的lambda
+* ???
+
+### T.141: 如果你只在一个地方需要简单的函数对象，使用未命名的lambda
+
+##### 理由
+
+这使得代码简洁，并且比其它方法提供了更好的局部性。
+
+##### 示例
+
+```cpp
+auto earlyUsersEnd = std::remove_if(users.begin(), users.end(),
+                                        [](const User &a) { return a.id > 100; });
+```
+
+##### 例外
+
+命名lambda对清晰性是有帮助的，即使它只使用一次。
+
+##### 实施
+
+* 查找相等和近似相等的lambda（用具名函数或者具名lambda来代替）。
+
+### T.142: 使用模板变量来简化符号
+
+##### 理由
+
+提高可读性。
+
+##### 示例
+
+```cpp
+???
+```
+
+##### 实施
+
+???
+
+### T.143: 不要无意中写出不通用的代码
+
+##### 理由
+
+通用性。可重用性。不要无故地依赖细节；使用可以使用的最通用的设施。
+
+##### 示例
+
+使用`!=`而不是`<`来比较迭代器；`!=`可以用于更多对象，因为它不依赖顺序。
+
+```cpp
+for (auto i = first; i < last; ++i) {   // 没那么通用
+    // ...
+}
+
+for (auto i = first; i != last; ++i) {   // 好；更通用
+    // ...
+}
+```
+
+当然，基于范围的`for`依然是更好的，它做了你想要做的事情。
+
+##### 示例
+
+使用提供了你所需功能的最少派生的类型。
+
+```cpp
+class Base {
+public:
+    Bar f();
+    Bar g();
+};
+
+class Derived1 : public Base {
+public:
+    Bar h();
+};
+
+class Derived2 : public Base {
+public:
+    Bar j();
+};
+
+// 不好，除非有特别的原因限制了只能用Derived1对象
+void my_func(Derived1& param)
+{
+    use(param.f());
+    use(param.g());
+}
+
+// 好，只使用Base接口，因此只依赖于它
+void my_func(Base& param)
+{
+    use(param.f());
+    use(param.g());
+}
+```
+
+##### 实施
+
+* 标记出使用`<`而不是`!=`来比较迭代器。
+* 标记出当`x.empty()`或`x.is_empty()`可用时的`x.size() == 0`。判空比`size()`可用于更多容器，因为一些容器不知道它们的大小，或者在概念上有无限的大小。
+* 标记出接受派生类型指针或引用的函数，在函数中只使用了在基类声明的函数。
+
+### T.144: 不要特化函数模板
+
+##### 理由
+
+根据语言规则，你不能部分特化一个函数模板。你可以完全特化一个函数模板，但是你几乎肯定想要重载来代替——因为函数模板特化不参与重载，它们不会像你可能想要的那样运作。少数情况下，你实际上应该通过委托到类模板上进行特化，这样你才可以正确地特化。
+
+##### 示例
+
+```cpp
+???
+```
+
+**例外**：如果你确实有有效的理由来特化一个函数模板，那么只要写一个函数模板，在其中委托给类模板，然后特化这个类模板（包括写部分特化的能力）。
+
+##### 实施
+
+* 标记出函数模板的所有特化。使用重载代替。
+
+### T.150: 使用`static_assert`来检查一个类是否符合概念
+
+##### 理由
+
+如果你希望一个类符合一个概念，应尽早地验证它，减少用户的痛苦。
+
+##### 示例
+
+```cpp
+class X {
+public:
+    X() = delete;
+    X(const X&) = default;
+    X(X&&) = default;
+    X& operator=(const X&) = default;
+    // ...
+};
+```
+
+在某个地方，可能在一个实现文件中，让编译器检查`X`期望的属性：
+
+```cpp
+static_assert(Default_constructible<X>);    // 错误：X有非默认的构造函数
+static_assert(Copyable<X>);                 // 错误：我们忘记定义X的移动构造函数
+```
+
+##### 实施
+
+不可行。

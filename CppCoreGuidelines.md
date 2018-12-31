@@ -16684,3 +16684,117 @@ void foo() { ++a; }
 
 * 标记出不符合规范的文件名。
 * 检查`.h`和`.cpp`（以及等价的文件）是否遵守以下的准则。
+
+### SF.2: `.h`文件不能包含对象定义或者非内联函数定义
+
+##### 理由
+
+包含容易受到单一定义规则影响的实体会导致链接错误。
+
+##### 示例
+
+```cpp
+// file.h:
+namespace Foo {
+    int x = 7;
+    int xx() { return x+x; }
+}
+
+// file1.cpp:
+#include <file.h>
+// ... more ...
+
+    // file2.cpp:
+#include <file.h>
+// ... more ...
+```
+
+链接`file1.cpp`和`file2.cpp`会得到两个链接错误。
+
+**其它形式**：`.h`文件必须只包含：
+
+* 其它`.h`文件的`#include`（可能与包含保护一起出现）
+* 模板
+* 类定义
+* 函数声明
+* `extern`声明
+* `inline`函数定义
+* `constexpr`定义
+* `const`定义
+* `using`别名定义
+* ???
+
+##### 实施
+
+检查上面的白名单列表。
+
+### SF.3: 为多个源文件中的所有声明使用`.h`文件
+
+##### 理由
+
+可维护性。可读性。
+
+##### 示例，不好的
+
+```cpp
+// bar.cpp:
+void bar() { cout << "bar\n"; }
+
+// foo.cpp:
+extern void bar();
+void foo() { bar(); }
+```
+
+如果`bar`的类型需要修改，它的维护者不能找到`bar`的所有声明。`bar`的使用者不知道这个被使用的接口是否完整且正确的。最好的情况下，会从链接器发出（迟来的）错误信息。
+
+##### 实施
+
+* 标记出在其它源文件中声明的、没有放在`.h`中的实体。
+
+### SF.4: 在文件中的其它声明之前包含`.h`文件
+
+##### 理由
+
+尽量减少上下文依赖，并且增加可读性。
+
+##### 示例
+
+```cpp
+#include <vector>
+#include <algorithm>
+#include <string>
+
+// ... 我的代码在这里 ...
+```
+
+##### 示例，不好的
+
+```cpp
+#include <vector>
+
+// ... 我的代码在这里 ...
+
+#include <algorithm>
+#include <string>
+```
+
+##### 注意
+
+该准则同时适用于`.h`和`.cpp`文件。
+
+##### 注意
+
+通过把`#include`放在我们想要保护的代码的*后面*（就像上面标记为“不好的”示例），以此在头文件中隔离声明和宏，这种做法存在一些争论。然而
+
+* 这只适用于（在一个层级上的）一个文件：如果在一个会被其它头文件包含的头文件中使用这个技术，它的缺点会重新出现。
+* 名称空间（“实现名称空间”）可以防止很多上下文依赖。
+* 完整的保护和灵活性需要模块。
+
+**参阅**：
+
+* [Working Draft, Extensions to C++ for Modules](http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2016/n4592.pdf)
+* [Modules, Componentization, and Transition](http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2016/p0141r0.pdf)
+
+##### 实施
+
+容易的。

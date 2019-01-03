@@ -16633,7 +16633,7 @@ extern "C" X call_f(Y* p, int i)
 * SF.3: 为多个源文件中的所有声明使用`.h`文件
 * SF.4: 在文件中的其它声明之前包含`.h`文件
 * SF.5: `.cpp`文件必须包含定义了它的接口的`.h`文件
-* SF.6: 使用`using namespace`指令进行转换、用于基础库（例如`std`），或者（只）在局部作用域中使用
+* SF.6: 把`using namespace`指令用于过渡、基础库（例如`std`），或者（只）在局部作用域中使用
 * SF.7: 不要在头文件的全局作用域中写`using namespace`
 * SF.8: 为所有`.h`文件使用`#include`保护
 * SF.9: 避免在多个源文件之间出现循环依赖
@@ -16798,3 +16798,99 @@ void foo() { bar(); }
 ##### 实施
 
 容易的。
+
+### SF.5: `.cpp`文件必须包含定义了它的接口的`.h`文件
+
+##### 理由
+
+这样做可以让编译器执行早期的一致性检查。
+
+##### 示例，不好的
+
+```cpp
+// foo.h:
+void foo(int);
+int bar(long);
+int foobar(int);
+
+// foo.cpp:
+void foo(int) { /* ... */ }
+int bar(double) { /* ... */ }
+double foobar(int);
+```
+
+对于调用了`bar`或者`foobar`的程序，在链接之前这里的错误都不会被捕捉到。
+
+##### 示例
+
+```cpp
+// foo.h:
+void foo(int);
+int bar(long);
+int foobar(int);
+
+// foo.cpp:
+#include <foo.h>
+
+void foo(int) { /* ... */ }
+int bar(double) { /* ... */ }
+double foobar(int);   // 出错：错误的返回类型
+```
+
+`foobar`的返回类型错误现在会在`foo.cpp`编译的时候立即被捕捉到。由于重载，`bar`的参数类型错误在链接之前不会被捕捉到，但系统性地使用`.h`文件增加了程序员尽早捕捉到这些错误的可能性。
+
+##### 实施
+
+???
+
+### SF.6: 把`using namespace`指令用于过渡、基础库（例如`std`），或者（只）在局部作用域中使用
+
+##### 理由
+
+`using namespace`会导致名称冲突，因此应该保守地使用。但是，在用户代码中并不总是可以限定每一个名称空间中的名称（例如，在过渡阶段），而且有时一个名称空间非常基础，遍布在代码库中，在这种情况下，始终进行限定是啰嗦且令人分心的。
+
+##### 示例
+
+```cpp
+#include <string>
+#include <vector>
+#include <iostream>
+#include <memory>
+#include <algorithm>
+
+using namespace std;
+
+// ...
+```
+
+这里（显然），标准库被普遍地使用，并且明显没有使用其它库，所以要求在每个地方使用`std::`会令人分心。
+
+##### 示例
+
+使用`using namespace std;`会让程序员遇到与标准库中的名称冲突的可能：
+
+```cpp
+#include <cmath>
+using namespace std;
+
+int g(int x)
+{
+    int sqrt = 7;
+    // ...
+    return sqrt(x); // 出错
+}
+```
+
+然而，这并非特别可能会导致一个不是错误的解析，并且使用`using namespace std`的人会假定已经了解`std`以及使用它的风险。
+
+##### 注意
+
+`.cpp`文件是局部作用域的一种形式。包含`using namespae X`的N行`.cpp`文件、包含`using namespace X`的N行函数，以及总共有N行代码的M个函数，每个函数都包含`using namespace X`，在这几种情况下遇到名称冲突的可能性没有什么不同。
+
+##### 注意
+
+“不要在头文件中写`using namespace`”
+
+##### 实施
+
+标记出在单个源文件中对多个不同的名称空间使用的`using namespace`指示符。

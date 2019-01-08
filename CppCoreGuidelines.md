@@ -17230,3 +17230,179 @@ std::vector<int> w(initial_size);   // 没问题
 ##### 实施
 
 * 标记出在构造之后长度从不改变的`vector`（例如由于它是`const`的，或者由于没有非`const`的函数调用它）。修复方法：使用`array`代替。
+
+### SL.con.3: 避免边界错误
+
+##### 理由
+
+在超出元素分配区间的地方读取或写入通常都会导致糟糕的错误、错误的结果、崩溃、以及安全性违规。
+
+##### 注意
+
+应用于元素区间的标准库函数全部都有（或者可以有）接受一个`span`的边界安全的重载版本。标准类型，例如`vector`，可以修改成根据边界配置来执行边界检查（以兼容的方式，例如通过添加契约），或者通过`at()`来使用。
+
+理想情况下，边界内的保证应该静态地实施。例如：
+
+* 基于范围的`for`不能越过它正在操作的容器的范围。
+* `v.begin(),v.end()`可以容易地确定是边界安全的。
+
+这种循环与任何不检查/不安全的等价物一样快。
+
+通常，一个简单的预检查可以消除对每个索引都检查的需要。例如：
+
+* 对于`v.begin(),v.begin()+i`，`i`可以容易地与`v.size()`检查。
+
+这种循环比单独检查每个元素的访问更快。
+
+##### 示例，不好的
+
+```cpp
+void f()
+{
+    array<int, 10> a, b;
+    memset(a.data(), 0, 10);         // 不好的，并且包含了长度错误（length = 10 * sizeof(int)）
+    memcmp(a.data(), b.data(), 10);  // 不好的，并且包含了长度错误（length = 10 * sizeof(int)）
+}
+```
+
+同样的，`std::array<>::fill()`、`std::fill()`或者甚至是一个空的初始化器也比`memset()`更好。
+
+##### 示例，好的
+
+```cpp
+void f()
+{
+    array<int, 10> a, b, c{};       // c初始化成零
+    a.fill(0);
+    fill(b.begin(), b.end(), 0);    // std::fill()
+    fill(b, 0);                     // std::fill() + Ranges TS
+
+    if ( a == b ) {
+        // ...
+    }
+}
+```
+
+##### 示例
+
+如果代码正在使用一个未经修改的标准库，那么仍然存在以边界安全的方式来使用`std::array`和`std::vector`的方法。代码可以调用这些类型上的`.at()`成员函数，该函数会抛出`std::out_of_range`异常。另一种方法是，代码可以调用自由函数`at()`，该函数会在边界违规的时候执行快速失败（或者自定义的行为）。
+
+```cpp
+void f(std::vector<int>& v, std::array<int, 12> a, int i)
+{
+    v[0] = a[0];        // 不好的
+    v.at(0) = a[0];     // 没问题（可选方法1）
+    at(v, 0) = a[0];    // 没问题（可选方法2）
+
+    v.at(0) = a[i];     // 不好的
+    v.at(0) = a.at(i);  // 没问题（可选方法1）
+    v.at(0) = at(a, i); // 没问题（可选方法2）
+}
+```
+
+##### 实施
+
+* 对任何调用没有边界检查的标准库函数进行诊断。??? 插入被禁用函数列表的链接
+
+**待办注意事项**：
+
+* 即便从未进行标准化，如果只是为了保证兼容性，对标准库的影响也需要与WG21有密切的合作。
+* 我们正在考虑为标准库（特别是C标准库）函数指定边界安全的重载，例如`memcmp`，并且把它们引入GSL。
+* 对于现有的标准库函数和类型，例如`vector`这种没有完全经过边界检查的，目标是让这些特性可以在被开启了边界配置的代码调用时能够进行边界检查，以及在被遗留代码调用时不进行检查，可能会使用契约（同时被几个WG21成员提交提案）。
+
+## SL.str: 字符串
+
+文本操作是一个庞大的话题。`std::string`没有涵盖所有的话题。这部分的内容主要是尝试澄清`std::string`与`char*`、`zstring`、`string_view`和`gsl::string_span`的关系。非ASCII字符集和编码（例如，`wchar_t`、Unicode和UTF-8）的重要话题会在其它地方提及。
+
+**另见**：正则表达式
+
+这里，我们使用“字符序列”或“字符串”来表示意图作为文本来阅读的字符序列（最终在某种程度上）。我们不考虑
+
+字符串概要：
+
+* SL.str.1: 使用`std::string`来取得字符序列
+* SL.str.2: 使用`std::string_view`或`gsl::string_span`来表示字符序列
+* SL.str.3: 使用`zstring`或`czstring`来表示C风格的、以零字符结尾的字符序列
+* SL.str.4: 使用`char*`来表示单个字符
+* SL.str.5: 使用`std::byte`来表示不需要代表字符的字节值
+* SL.str.10: 当你需要执行区域敏感的字符串操作时，使用`std::string`
+* SL.str.11: 当你需要转换字符串时，使用`gsl::string_span`而不是`std::string_view`
+* SL.str.12: 为意图定义成标准库`string`的字符串字面量使用`s`后缀
+
+**另见**：
+
+* F.24: span
+* F.25: zstring
+
+### SL.str.1: 使用`std::string`来取得字符序列
+
+##### 理由
+
+`string`正确地处理了分配、所有权、拷贝、逐步扩展、以及提供了各种有用的操作。
+
+##### 示例
+
+```cpp
+vector<string> read_until(const string& terminator)
+{
+    vector<string> res;
+    for (string s; cin >> s && s != terminator; ) // 读取一个词
+        res.push_back(s);
+    return res;
+}
+```
+
+注意`>>`和`!=`是如何提供给`string`使用的（作为有用操作的示例），而且没有显式的分配、释放、或者范围检查（`string`考虑了这些事情）。
+
+在C++17中，我们可能会使用`string_view`作为参数，而不是`const string&`，为调用者提供了更大的灵活性：
+
+```cpp
+vector<string> read_until(string_view terminator)   // C++17
+{
+    vector<string> res;
+    for (string s; cin >> s && s != terminator; ) // 读取一个词
+        res.push_back(s);
+    return res;
+}
+```
+
+`gsl::string_span`是目前的另一种选择，提供了`std::string_view`的大部分好处，举个简单的例子：
+
+```cpp
+vector<string> read_until(string_span terminator)
+{
+    vector<string> res;
+    for (string s; cin >> s && s != terminator; ) // 读取一个词
+        res.push_back(s);
+    return res;
+}
+```
+
+##### 示例，不好的
+
+不要为那些需要内存管理的操作使用C风格的字符串：
+
+```cpp
+char* cat(const char* s1, const char* s2)   // 注意！
+    // 返回 s1 + '.' + s2
+{
+    int l1 = strlen(s1);
+    int l2 = strlen(s2);
+    char* p = (char*) malloc(l1 + l2 + 2);
+    strcpy(p, s1, l1);
+    p[l1] = '.';
+    strcpy(p + l1 + 1, s2, l2);
+    p[l1 + l2 + 1] = 0;
+    return p;
+}
+```
+
+我们写对了吗？调用者是否会记得用`free()`释放返回的指针？这些代码是否能通过安全审查？
+
+##### 注意
+
+不要在没有经过测量的情况下假设`string`比低层级的技术慢，并且要记住并非所有代码都是性能关键的。“不要过早地优化”
+
+##### 实施
+
+???

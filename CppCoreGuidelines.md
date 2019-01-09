@@ -17406,3 +17406,101 @@ char* cat(const char* s1, const char* s2)   // 注意！
 ##### 实施
 
 ???
+
+### SL.str.2: 使用`std::string_view`或`gsl::string_span`来表示字符序列
+
+##### 理由
+
+`std::string_view`或`gsl::string_span`提供了对字符序列简单以及（潜在）安全的访问方式，这个访问方式与字符序列如何分配和存储无关。
+
+##### 示例
+
+```cpp
+vector<string> read_until(string_span terminator);
+
+void user(zstring p, const string& s, string_span ss)
+{
+    auto v1 = read_until(p);
+    auto v2 = read_until(s);
+    auto v3 = read_until(ss);
+    // ...
+}
+```
+
+##### 注意
+
+`std::string_view`（C++17）是只读的。
+
+##### 实施
+
+???
+
+### SL.str.3: 使用`zstring`或`czstring`来表示C风格的、以零字符结尾的字符序列
+
+##### 理由
+
+可读性。声明意图。原始的`char*`可以指向单个字符、字符数组、C风格（以零结尾）字符串、或者甚至是一个小的整数。区分这些选项可以避免误解和缺陷。
+
+##### 示例
+
+```cpp
+void f1(const char* s); // s可能是一个字符串
+```
+
+我们所知道的是，它可能是`nullptr`或者指向至少一个字符。
+
+```cpp
+void f1(zstring s);     // s是C风格字符串或nullptr
+void f1(czstring s);    // s是C风格字符串常量或nullptr
+void f1(std::byte* s);  // s是指向byte的指针（C++17）
+```
+
+##### 注意
+
+不要把C风格字符串转换成`string`，除非有理由这样做。
+
+##### 注意
+
+像其它“原始指针”那样，`zstring`不应该表现出所有权。
+
+##### 注意
+
+有大量“已存在的”C++代码，大部分使用了`char*`和`const char*`而没有文档说明它的使用意图。它们以各种方式广泛地使用，包括表示所有权，以及作为内存的泛型指针（而不是`void*`）。这些用法难以区分，所以这个指南难以遵守。这是C和C++程序缺陷的主要来源之一，因此尽可能遵守该指南是值得的。
+
+##### 实施
+
+* 标记出用于`char*`上的`[]`
+* 标记出用于`char*`上的`delete`
+* 标记出用于`char*`上的`free()`
+
+### SL.str.4: 使用`char*`来表示单个字符
+
+##### 理由
+
+现有代码中，`char*`的各种用法是错误的主要来源。
+
+##### 示例，不好的
+
+```cpp
+char arr[] = {'a', 'b', 'c'};
+
+void print(const char* p)
+{
+    cout << p << '\n';
+}
+
+void use()
+{
+    print(arr);   // 运行时错误；可能会非常严重
+}
+```
+
+`arr`数组不是C风格字符串，因为它不是以零结尾的。
+
+##### 替代方案
+
+参阅`zstring`、`string`和`string_span`。
+
+##### 实施
+
+* 标记出用于`char*`上的`[]`

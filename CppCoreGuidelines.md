@@ -18085,3 +18085,132 @@ exit:
 * RF.video: 关于“现代C++”的视频
 * RF.man: 手册
 * RF.core: 核心指南资料
+
+## RF.rules: 编码准则
+
+* [Boost Library Requirements and Guidelines](http://www.boost.org/development/requirements.html)。 ???
+
+* [Bloomberg: BDE C++ Coding](https://github.com/bloomberg/bde/wiki/CodingStandards.pdf)。着重强调了代码的组织和布局。
+
+* Facebook：???
+
+* [GCC Coding Conventions](https://gcc.gnu.org/codingconventions.html)。C++03，（合理地）往后看一看。
+
+* [Google C++ Style Guide](https://google.github.io/styleguide/cppguide.html)。面向C++03和旧的代码库。Google的专家目前正积极地在这里合作，以帮助改进这些指南，并且希望能合并他们所做的努力，让这些准则能成为他们也会推荐的现代通用集合。
+
+* [JSF++: JOINT STRIKE FIGHTER AIR VEHICLE C++ CODING STANDARDS](http://www.stroustrup.com/JSF-AV-rules.pdf)。文档编号2RDU00001修订C，2005年12月。针对飞行控制软件。针对硬实时。这意味着它必然是非常严格的（“如果程序失败了，就会有人死亡”）。例如，在飞机起飞后，不能进行自由存储的分配或者释放（不能有内存溢出，不允许出现内存碎片）。不能使用异常（因为没有可用的工具来确保异常能在固定的短时间内处理完）。对于任务紧急的应用程序，使用的库必须是已经过审核的。对于与这份指南集合的任何相似性都不要感到惊讶，因为Bjarne Stroustrup是JSF++的作者之一。推荐这份文档，但记住它聚焦于特定的领域。
+
+* [Mozilla Portability Guide](https://developer.mozilla.org/en-US/docs/Mozilla/C%2B%2B_Portability_Guide)。正如名称指出的，它旨在多个（老）编译器上的可移植性。因此，它是有限制性的。
+
+* [Geosoft.no: C++ Programming Style Guidelines](http://geosoft.no/development/cppstyle.html)。???
+
+* [Possibility.com: C++ Coding Standard](http://www.possibility.com/Cpp/CppCodingStandard.html)。???
+
+* [SEI CERT: Secure C++ Coding Standard](https://www.securecoding.cert.org/confluence/pages/viewpage.action?pageId=637)。为安全敏感代码准备的一份非常好的准则集（包含示例和理论说明）。其中的许多准则被广泛应用。
+
+* [High Integrity C++ Coding Standard](http://www.codingstandard.com/)。
+
+* [llvm](http://llvm.org/docs/CodingStandards.html)。稍微有点简短，在C++11之前，而且（并非不合理地）针对它的领域做了调整。
+
+* ???
+
+## RF.books: 编码指南书籍
+
+* [Meyers96](#Meyers96) Scott Meyers: *More Effective C++*. Addison-Wesley 1996.
+
+* [Meyers97](#Meyers97) Scott Meyers: *Effective C++, Second Edition*. Addison-Wesley 1997.
+
+* [Meyers01](#Meyers01) Scott Meyers: *Effective STL*. Addison-Wesley 2001.
+
+* [Meyers05](#Meyers05) Scott Meyers: *Effective C++, Third Edition*. Addison-Wesley 2005.
+
+* [Meyers15](#Meyers15) Scott Meyers: *Effective Modern C++*. O'Reilly 2015.
+
+* [SuttAlex05](#SuttAlex05) Sutter and Alexandrescu: *C++ Coding Standards*. Addison-Wesley 2005. 更多的是元准则集，而不是准则集。在C++11之前。
+
+* [Stroustrup05](#Stroustrup05) Bjarne Stroustrup: [A rationale for semantically enhanced library languages](http://www.stroustrup.com/SELLrationale.pdf).
+  LCSD05. October 2005.
+
+* [Stroustrup14](#Stroustrup05) Stroustrup: [A Tour of C++](http://www.stroustrup.com/Tour.html).
+  Addison Wesley 2014. 每一章以包含了一系列推荐做法的建议部分来结束。
+
+* [Stroustrup13](#Stroustrup13) Stroustrup: [The C++ Programming Language (4th Edition)](http://www.stroustrup.com/4th.html). 每一章以包含了一系列推荐做法的建议部分来结束。
+
+* Stroustrup: [Style Guide](http://www.stroustrup.com/Programming/PPP-style.pdf)
+  for [Programming: Principles and Practice using C++](http://www.stroustrup.com/programming.html). 大部分是低层级的命名和布局准则。主要是一份教育工具。
+
+## RF.C++: C++编程（C++11/C++14）
+
+* [TC++PL4](http://www.stroustrup.com/4th.html)：为经验丰富的程序员提供的对C++语言和标准库的完整细致的描述。
+
+* [Tour++](http://www.stroustrup.com/Tour.html)：为经验丰富的程序员提供的对C++语言和标准库的概要。
+
+* [Programming: Principles and Practice using C++](http://www.stroustrup.com/programming.html)：为初学者和相关新手提供的教科书。
+
+## RF.web: 网页
+
+* [isocpp.org](https://isocpp.org)
+* [Bjarne Stroustrup's home pages](http://www.stroustrup.com)
+* [WG21](http://www.open-std.org/jtc1/sc22/wg21/)
+* [Boost](http://www.boost.org)<a name="Boost"></a>
+* [Adobe open source](http://www.adobe.com/open-source.html)
+* [Poco libraries](http://pocoproject.org/)
+* Sutter's Mill?
+* ???
+
+## RF.video: 关于“现代C++”的视频
+
+* Bjarne Stroustrup: [C++11 Style](http://channel9.msdn.com/Events/GoingNative/GoingNative-2012/Keynote-Bjarne-Stroustrup-Cpp11-Style). 2012.
+* Bjarne Stroustrup: [The Essence of C++: With Examples in C++84, C++98, C++11, and C++14](http://channel9.msdn.com/Events/GoingNative/2013/Opening-Keynote-Bjarne-Stroustrup). 2013
+* All the talks from [CppCon '14](https://isocpp.org/blog/2014/11/cppcon-videos-c9)
+* Bjarne Stroustrup: [The essence of C++](https://www.youtube.com/watch?v=86xWVb4XIyE) at the University of Edinburgh. 2014.
+* Bjarne Stroustrup: [The Evolution of C++ Past, Present and Future](https://www.youtube.com/watch?v=_wzc7a3McOs). CppCon 2016 keynote.
+* Bjarne Stroustrup: [Make Simple Tasks Simple!](https://www.youtube.com/watch?v=nesCaocNjtQ). CppCon 2014 keynote.
+* Bjarne Stroustrup: [Writing Good C++14](https://www.youtube.com/watch?v=1OEu9C51K2A). CppCon 2015 keynote about the Core Guidelines.
+* Herb Sutter: [Writing Good C++14... By Default](https://www.youtube.com/watch?v=hEx5DNLWGgA). CppCon 2015 keynote about the Core Guidelines.
+* CppCon 15
+* ??? C++ Next
+* ??? Meting C++
+* ??? more ???
+
+## RF.man: 手册
+
+* ISO C++ Standard C++11.
+* ISO C++ Standard C++14.
+* [ISO C++ Standard C++17 CD](http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2016/n4606.pdf). Committee Draft.
+* [Palo Alto "Concepts" TR](http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2012/n3351.pdf).
+* [ISO C++ Concepts TS](http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2015/n4553.pdf).
+* [WG21 Ranges report](http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2016/n4569.pdf). Draft.
+
+## RF.core: 核心指南资料
+
+这部分包含了对呈现核心指南以及在指南之下的思想有帮助的材料：
+
+* [Our documents directory](https://github.com/isocpp/CppCoreGuidelines/tree/master/docs)
+* Stroustrup, Sutter, and Dos Reis: [A brief introduction to C++'s model for type- and resource-safety](http://www.stroustrup.com/resource-model.pdf). 有许多示例的文档。
+* Sergey Zubkov: [a Core Guidelines talk](https://www.youtube.com/watch?v=DyLwdl_6vmU)
+and here are the [slides](http://2017.cppconf.ru/talks/sergey-zubkov). In Russian. 2017.
+* Neil MacIntosh: [The Guideline Support Library: One Year Later](https://www.youtube.com/watch?v=_GhNnCuaEjo). CppCon 2016.
+* Bjarne Stroustrup: [Writing Good C++14](https://www.youtube.com/watch?v=1OEu9C51K2A). CppCon 2015 keynote.
+* Herb Sutter: [Writing Good C++14... By Default](https://www.youtube.com/watch?v=hEx5DNLWGgA). CppCon 2015 keynote.
+* Peter Sommerlad: [C++ Core Guidelines - Modernize your C++ Code Base](https://www.youtube.com/watch?v=fQ926v4ZzAM). ACCU 2017.
+* Bjarne Stroustrup: [No Littering!](https://www.youtube.com/watch?v=01zI9kV4h8c). Bay Area ACCU 2016.
+它提供了核心指南在目标层面的一些想法。
+
+注意，CppCon陈述的幻灯片是可用的（已发布视频的链接）。
+
+非常欢迎对这份列表作出贡献。
+
+## 鸣谢
+
+感谢许多人贡献了准则、建议、支持信息以及参考资料等，包括：
+
+* Peter Juhl
+* Neil MacIntosh
+* Axel Naumann
+* Andrew Pardoe
+* Gabriel Dos Reis
+* Zhuang, Jiangang (Jeff)
+* Sergey Zubkov
+
+另外可以参考在github上的贡献者名单。
